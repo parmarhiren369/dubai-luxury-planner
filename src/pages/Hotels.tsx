@@ -85,7 +85,8 @@ const ROOM_TYPES = {
 } as const;
 
 export default function Hotels() {
-  const { hotels, addHotel, updateHotel, deleteHotel, importHotels } = useHotelStore();
+  const store = useHotelStore();
+  const hotels = store.getHotels();
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
@@ -195,7 +196,7 @@ export default function Hotels() {
 
     try {
       const data = await parseExcelFile<Omit<Hotel, "id">>(file);
-      const count = importHotels(data);
+      const count = store.importHotels(data);
       toast.success(`${count} hotels imported successfully!`);
     } catch (error) {
       toast.error("Failed to import file. Please check the format.");
@@ -213,14 +214,14 @@ export default function Hotels() {
 
   const handleSubmit = () => {
     if (editingHotel) {
-      updateHotel(editingHotel.id, formData);
+      store.updateHotel(editingHotel.id, formData);
       toast.success("Hotel updated successfully!");
     } else {
       const newHotel: Hotel = {
         ...formData,
         id: `hotel-${Date.now()}`,
       };
-      addHotel(newHotel);
+      store.addHotel(newHotel);
       toast.success("Hotel added successfully!");
     }
     setIsDialogOpen(false);
@@ -235,7 +236,7 @@ export default function Hotels() {
   };
 
   const handleDelete = (id: string) => {
-    deleteHotel(id);
+    store.deleteHotel(id);
     toast.success("Hotel deleted successfully!");
   };
 
