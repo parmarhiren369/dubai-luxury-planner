@@ -108,12 +108,27 @@ export const hotelStore = {
     listeners.forEach(l => l());
   },
   
-  importHotels: (hotels: Omit<Hotel, "id">[]) => {
-    const newHotels = hotels.map((hotel, index) => ({
-      ...hotel,
-      id: `imported-${Date.now()}-${index}`,
-      status: hotel.status || "active",
-    })) as Hotel[];
+  importHotels: (importedData: Partial<Omit<Hotel, "id">>[]) => {
+    const newHotels = importedData.map((hotel, index) => {
+      const newHotel: Hotel = {
+        id: `imported-${Date.now()}-${index}`,
+        name: String(hotel.name || ""),
+        category: String(hotel.category || ""),
+        location: String(hotel.location || ""),
+        singleRoom: Number(hotel.singleRoom || 0),
+        doubleRoom: Number(hotel.doubleRoom || 0),
+        tripleRoom: Number(hotel.tripleRoom || 0),
+        quadRoom: Number(hotel.quadRoom || 0),
+        extraBed: Number(hotel.extraBed || 0),
+        childWithBed: Number(hotel.childWithBed || 0),
+        childWithoutBed: Number(hotel.childWithoutBed || 0),
+        infant: Number(hotel.infant || 0),
+        mealPlan: String(hotel.mealPlan || "BB"),
+        status: hotel.status === "inactive" ? "inactive" : "active",
+      };
+      return newHotel;
+    });
+
     hotelsData = [...hotelsData, ...newHotels];
     listeners.forEach(l => l());
     return newHotels.length;
