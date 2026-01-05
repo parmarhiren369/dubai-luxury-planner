@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* WTB Tourism Luxury Theme - Cyan Blues with Gold Accents */
+    --background: 210 25% 97%;
+    --foreground: 215 35% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 35% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 35% 15%;
+
+    /* Primary - Cyan Blue from logo */
+    --primary: 195 85% 45%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Deep Navy */
+    --secondary: 220 45% 20%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 20% 94%;
+    --muted-foreground: 215 20% 45%;
+
+    /* Accent - Gold for luxury */
+    --accent: 42 85% 55%;
+    --accent-foreground: 215 35% 15%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 20% 88%;
+    --input: 210 20% 88%;
+    --ring: 195 85% 45%;
+
+    --radius: 0.75rem;
+
+    /* Sidebar - Dark Navy Theme */
+    --sidebar-background: 220 45% 18%;
+    --sidebar-foreground: 210 20% 85%;
+    --sidebar-primary: 195 85% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 40% 25%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 35% 25%;
+    --sidebar-ring: 195 85% 55%;
+    --sidebar-muted: 220 30% 40%;
+
+    /* Custom WTB Colors */
+    --wtb-cyan: 195 85% 50%;
+    --wtb-cyan-light: 195 85% 65%;
+    --wtb-cyan-dark: 195 85% 35%;
+    --wtb-navy: 220 45% 18%;
+    --wtb-navy-light: 220 40% 25%;
+    --wtb-gold: 42 85% 55%;
+    --wtb-gold-light: 42 85% 70%;
+    --wtb-success: 160 70% 45%;
+    --wtb-warning: 35 90% 55%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(195 85% 50%), hsl(195 85% 35%));
+    --gradient-sidebar: linear-gradient(180deg, hsl(220 45% 22%), hsl(220 45% 15%));
+    --gradient-gold: linear-gradient(135deg, hsl(42 85% 60%), hsl(42 85% 45%));
+    --gradient-card: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 25% 98%));
+
+    /* Shadows */
+    --shadow-sm: 0 2px 8px -2px hsl(220 45% 18% / 0.08);
+    --shadow-md: 0 4px 16px -4px hsl(220 45% 18% / 0.12);
+    --shadow-lg: 0 8px 32px -8px hsl(220 45% 18% / 0.15);
+    --shadow-glow: 0 0 20px hsl(195 85% 50% / 0.3);
+  }
+
+  .dark {
+    --background: 220 45% 8%;
+    --foreground: 210 20% 95%;
+
+    --card: 220 40% 12%;
+    --card-foreground: 210 20% 95%;
+
+    --popover: 220 40% 12%;
+    --popover-foreground: 210 20% 95%;
+
+    --primary: 195 85% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 40% 25%;
+    --secondary-foreground: 210 20% 95%;
+
+    --muted: 220 35% 18%;
+    --muted-foreground: 210 15% 55%;
+
+    --accent: 42 85% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 70% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 35% 20%;
+    --input: 220 35% 20%;
+    --ring: 195 85% 50%;
+
+    --sidebar-background: 220 45% 10%;
+    --sidebar-foreground: 210 20% 85%;
+    --sidebar-primary: 195 85% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 40% 18%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 220 35% 18%;
+    --sidebar-ring: 195 85% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Montserrat', sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', serif;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-md border border-border/50;
+  }
+
+  .luxury-shadow {
+    box-shadow: var(--shadow-lg);
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+
+  .sidebar-glow {
+    box-shadow: var(--shadow-glow);
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+}
