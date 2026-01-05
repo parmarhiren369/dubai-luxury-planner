@@ -1,8 +1,7 @@
-// Import the functions you need
+// src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 
-// Your Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCmw_3M5bCUDZFJr-31NVrQR38HK_bKWfs",
   authDomain: "wtb-tourism-a6c1d.firebaseapp.com",
@@ -17,5 +16,4 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 
-// Export app if needed later
-export { app };
+export { app, analytics };
