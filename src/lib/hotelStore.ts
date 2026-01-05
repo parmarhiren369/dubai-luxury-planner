@@ -129,7 +129,11 @@ export const hotelStore = {
       return newHotel;
     });
 
-    hotelsData = [...hotelsData, ...newHotels];
+    // Replace old data with new data from Excel
+    hotelsData = newHotels;
+    // Clear old rate periods to prevent data inconsistency
+    ratePeriods = [];
+    
     listeners.forEach(l => l());
     return newHotels.length;
   },
