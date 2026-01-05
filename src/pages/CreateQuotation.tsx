@@ -58,25 +58,25 @@ const customers = [
 ];
 
 const sightseeingOptions = [
-  { id: "1", name: "Burj Khalifa - At The Top", adultPrice: 149, childPrice: 99 },
-  { id: "2", name: "Desert Safari with BBQ", adultPrice: 85, childPrice: 65 },
-  { id: "3", name: "Dubai Marina Cruise", adultPrice: 99, childPrice: 75 },
-  { id: "4", name: "Dubai Frame", adultPrice: 50, childPrice: 35 },
-  { id: "5", name: "Aquaventure Waterpark", adultPrice: 295, childPrice: 245 },
+  { id: "1", name: "Burj Khalifa - At The Top", adultPrice: 547, childPrice: 364 },
+  { id: "2", name: "Desert Safari with BBQ", adultPrice: 312, childPrice: 239 },
+  { id: "3", name: "Dubai Marina Cruise", adultPrice: 364, childPrice: 276 },
+  { id: "4", name: "Dubai Frame", adultPrice: 184, childPrice: 129 },
+  { id: "5", name: "Aquaventure Waterpark", adultPrice: 1084, childPrice: 900 },
 ];
 
 const mealOptions = [
-  { id: "1", name: "Breakfast Buffet", price: 35 },
-  { id: "2", name: "Lunch Set Menu", price: 45 },
-  { id: "3", name: "Dinner Buffet", price: 65 },
-  { id: "4", name: "BBQ Dinner", price: 55 },
+  { id: "1", name: "Breakfast Buffet", price: 129 },
+  { id: "2", name: "Lunch Set Menu", price: 165 },
+  { id: "3", name: "Dinner Buffet", price: 239 },
+  { id: "4", name: "BBQ Dinner", price: 202 },
 ];
 
 const transferOptions = [
-  { id: "1", name: "Airport - Hotel (Sedan)", price: 45 },
-  { id: "2", name: "Airport - Hotel (SUV)", price: 75 },
-  { id: "3", name: "City Tour (Half Day)", price: 120 },
-  { id: "4", name: "City Tour (Full Day)", price: 200 },
+  { id: "1", name: "Airport - Hotel (Sedan)", price: 165 },
+  { id: "2", name: "Airport - Hotel (SUV)", price: 276 },
+  { id: "3", name: "City Tour (Half Day)", price: 441 },
+  { id: "4", name: "City Tour (Full Day)", price: 735 },
 ];
 
 export default function CreateQuotation() {
@@ -534,7 +534,7 @@ export default function CreateQuotation() {
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-muted-foreground">{nights} nights × {numberOfRooms} room(s)</p>
-                      <p className="text-xl font-bold text-primary">${getHotelPrice()}</p>
+                      <p className="text-xl font-bold text-primary">AED {getHotelPrice()}</p>
                     </div>
                   </div>
                 </div>
@@ -590,7 +590,7 @@ export default function CreateQuotation() {
                     <div className="flex-1">
                       <p className="font-medium text-sm">{sight.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        Adult: ${sight.adultPrice} | Child: ${sight.childPrice}
+                        Adult: AED {sight.adultPrice} | Child: AED {sight.childPrice}
                       </p>
                     </div>
                   </div>
@@ -648,7 +648,7 @@ export default function CreateQuotation() {
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium">{meal.name}</span>
-                      <span className="text-xs text-muted-foreground ml-2">${meal.price}/person</span>
+                      <span className="text-xs text-muted-foreground ml-2">AED {meal.price}/person</span>
                     </div>
                   </div>
                 ))}
@@ -704,7 +704,7 @@ export default function CreateQuotation() {
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium">{transfer.name}</span>
-                      <span className="text-xs text-muted-foreground ml-2">${transfer.price}</span>
+                      <span className="text-xs text-muted-foreground ml-2">AED {transfer.price}</span>
                     </div>
                   </div>
                 ))}
@@ -797,12 +797,12 @@ export default function CreateQuotation() {
                               <p className="text-xs text-muted-foreground">{item.details}</p>
                             )}
                             <p className="text-xs text-muted-foreground">
-                              {item.quantity} × ${item.unitPrice}
+                              {item.quantity} × AED {item.unitPrice}
                             </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm">${item.total}</span>
+                          <span className="font-semibold text-sm">AED {item.total}</span>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -822,7 +822,7 @@ export default function CreateQuotation() {
               <div className="border-t pt-4 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span className="font-medium">${grandTotal.toFixed(2)}</span>
+                  <span className="font-medium">AED {grandTotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -830,13 +830,13 @@ export default function CreateQuotation() {
                     Per Head Cost
                   </span>
                   <Badge variant="secondary" className="text-base font-semibold">
-                    ${perHeadCost.toFixed(2)}
+                    AED {perHeadCost.toFixed(2)}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center pt-2 border-t">
                   <span className="font-semibold">Grand Total</span>
                   <span className="text-2xl font-bold text-primary">
-                    ${grandTotal.toFixed(2)}
+                    AED {grandTotal.toFixed(2)}
                   </span>
                 </div>
               </div>
