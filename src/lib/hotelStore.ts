@@ -1,8 +1,73 @@
 import { Hotel } from "./excelUtils";
 
 // Global hotel store for sharing data across components
-let hotelsData: Hotel[] = [];
-let lastKnownGoodHotelsData: Hotel[] = [];
+let hotelsData: Hotel[] = [
+  {
+    id: "1",
+    name: "Atlantis The Palm",
+    category: "5 Star Deluxe",
+    location: "Palm Jumeirah",
+    singleRoom: 1654,
+    doubleRoom: 2021,
+    tripleRoom: 2572,
+    quadRoom: 3123,
+    extraBed: 276,
+    childWithBed: 184,
+    childWithoutBed: 92,
+    infant: 0,
+    mealPlan: "BB",
+    status: "active",
+  },
+  {
+    id: "2",
+    name: "Burj Al Arab",
+    category: "7 Star",
+    location: "Jumeirah",
+    singleRoom: 4409,
+    doubleRoom: 5512,
+    tripleRoom: 7348,
+    quadRoom: 9184,
+    extraBed: 735,
+    childWithBed: 551,
+    childWithoutBed: 276,
+    infant: 0,
+    mealPlan: "HB",
+    status: "active",
+  },
+  {
+    id: "3",
+    name: "JW Marriott Marquis",
+    category: "5 Star",
+    location: "Business Bay",
+    singleRoom: 1029,
+    doubleRoom: 1286,
+    tripleRoom: 1654,
+    quadRoom: 2021,
+    extraBed: 184,
+    childWithBed: 129,
+    childWithoutBed: 74,
+    infant: 0,
+    mealPlan: "BB",
+    status: "active",
+  },
+  {
+    id: "4",
+    name: "Address Downtown",
+    category: "5 Star",
+    location: "Downtown Dubai",
+    singleRoom: 1396,
+    doubleRoom: 1763,
+    tripleRoom: 2278,
+    quadRoom: 2866,
+    extraBed: 239,
+    childWithBed: 165,
+    childWithoutBed: 92,
+    infant: 0,
+    mealPlan: "BB",
+    status: "active",
+  },
+];
+let lastKnownGoodHotelsData: Hotel[] = hotelsData;
 
 // Rate periods for date-based pricing
 export interface RatePeriod {
