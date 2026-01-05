@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Calendar } from "@/components/ui/calendar";
+import { Separator } from "@/components/ui/separator";
 import {
   Popover,
   PopoverContent,
@@ -31,10 +32,14 @@ import {
   Plus,
   Trash2,
   Calculator,
+  User,
+  Baby,
+  Plane,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useHotelStore } from "@/lib/hotelStore";
 
 interface QuotationItem {
   type: "hotel" | "sightseeing" | "meal" | "transfer";
@@ -42,28 +47,22 @@ interface QuotationItem {
   quantity: number;
   unitPrice: number;
   total: number;
+  details?: string;
 }
 
 const customers = [
-  { id: "1", name: "John Smith" },
-  { id: "2", name: "Sarah Johnson" },
-  { id: "3", name: "Ahmed Hassan" },
-  { id: "4", name: "Maria Garcia" },
-];
-
-const hotels = [
-  { id: "1", name: "Atlantis The Palm", pricePerNight: 550 },
-  { id: "2", name: "Burj Al Arab", pricePerNight: 1500 },
-  { id: "3", name: "JW Marriott Marquis", pricePerNight: 350 },
-  { id: "4", name: "Address Downtown", pricePerNight: 480 },
+  { id: "1", name: "John Smith", email: "john@example.com" },
+  { id: "2", name: "Sarah Johnson", email: "sarah@example.com" },
+  { id: "3", name: "Ahmed Hassan", email: "ahmed@example.com" },
+  { id: "4", name: "Maria Garcia", email: "maria@example.com" },
 ];
 
 const sightseeingOptions = [
-  { id: "1", name: "Burj Khalifa - At The Top", price: 149 },
-  { id: "2", name: "Desert Safari with BBQ", price: 85 },
-  { id: "3", name: "Dubai Marina Cruise", price: 99 },
-  { id: "4", name: "Dubai Frame", price: 50 },
-  { id: "5", name: "Aquaventure Waterpark", price: 295 },
+  { id: "1", name: "Burj Khalifa - At The Top", adultPrice: 149, childPrice: 99 },
+  { id: "2", name: "Desert Safari with BBQ", adultPrice: 85, childPrice: 65 },
+  { id: "3", name: "Dubai Marina Cruise", adultPrice: 99, childPrice: 75 },
+  { id: "4", name: "Dubai Frame", adultPrice: 50, childPrice: 35 },
+  { id: "5", name: "Aquaventure Waterpark", adultPrice: 295, childPrice: 245 },
 ];
 
 const mealOptions = [
@@ -81,20 +80,32 @@ const transferOptions = [
 ];
 
 export default function CreateQuotation() {
+  const { hotels, calculateStayCost, getRateForDate } = useHotelStore();
+  
+  // Customer & Trip Details
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [quotationType, setQuotationType] = useState("");
+  const [nationality, setNationality] = useState("");
+  
+  // Passenger Details
   const [adults, setAdults] = useState(2);
-  const [children, setChildren] = useState(0);
+  const [childrenWithBed, setChildrenWithBed] = useState(0);
+  const [childrenWithoutBed, setChildrenWithoutBed] = useState(0);
   const [infants, setInfants] = useState(0);
+  
+  // Dates
   const [arrivalDate, setArrivalDate] = useState<Date>();
   const [departureDate, setDepartureDate] = useState<Date>();
+  
+  // Items
   const [items, setItems] = useState<QuotationItem[]>([]);
   const [notes, setNotes] = useState("");
 
   // Hotel selection
   const [selectedHotel, setSelectedHotel] = useState("");
-  const [roomType, setRoomType] = useState("double");
-  const [nights, setNights] = useState(3);
+  const [roomType, setRoomType] = useState<"single" | "double" | "triple" | "quad">("double");
+  const [mealPlan, setMealPlan] = useState("BB");
+  const [numberOfRooms, setNumberOfRooms] = useState(1);
 
   // Sightseeing selection
   const [selectedSightseeing, setSelectedSightseeing] = useState<string[]>([]);
@@ -105,21 +116,53 @@ export default function CreateQuotation() {
   // Transfer selection
   const [selectedTransfers, setSelectedTransfers] = useState<string[]>([]);
 
-  const totalPax = adults + children;
+  const totalPax = adults + childrenWithBed + childrenWithoutBed;
+  const nights = arrivalDate && departureDate ? differenceInDays(departureDate, arrivalDate) : 0;
   
-  const addHotel = () => {
-    const hotel = hotels.find((h) => h.id === selectedHotel);
-    if (!hotel) return;
+  const activeHotels = hotels.filter(h => h.status === "active");
+  const selectedHotelData = activeHotels.find(h => h.id === selectedHotel);
+
+  // Calculate hotel price using store rates
+  const getHotelPrice = () => {
+    if (!selectedHotelData || !arrivalDate || !departureDate) return 0;
     
-    const total = hotel.pricePerNight * nights;
+    const { totalCost } = calculateStayCost(
+      selectedHotel,
+      roomType,
+      mealPlan,
+      arrivalDate,
+      departureDate
+    );
+    
+    return totalCost * numberOfRooms;
+  };
+
+  const addHotel = () => {
+    if (!selectedHotelData || !arrivalDate || !departureDate) {
+      toast.error("Please select a hotel and set dates first");
+      return;
+    }
+
+    const hotelCost = getHotelPrice();
+    const nightlyRate = nights > 0 ? hotelCost / nights / numberOfRooms : 0;
+
+    // Calculate child and extra bed costs
+    let additionalCosts = 0;
+    additionalCosts += childrenWithBed * selectedHotelData.childWithBed * nights;
+    additionalCosts += childrenWithoutBed * selectedHotelData.childWithoutBed * nights;
+    additionalCosts += infants * selectedHotelData.infant * nights;
+
+    const totalHotelCost = hotelCost + additionalCosts;
+
     setItems((prev) => [
       ...prev,
       {
         type: "hotel",
-        name: `${hotel.name} (${nights} nights, ${roomType})`,
+        name: selectedHotelData.name,
         quantity: nights,
-        unitPrice: hotel.pricePerNight,
-        total,
+        unitPrice: Math.round(nightlyRate),
+        total: Math.round(totalHotelCost),
+        details: `${numberOfRooms} ${roomType} room(s), ${nights} nights, ${mealPlan}`,
       },
     ]);
     toast.success("Hotel added to quotation");
@@ -129,15 +172,19 @@ export default function CreateQuotation() {
     selectedSightseeing.forEach((id) => {
       const sight = sightseeingOptions.find((s) => s.id === id);
       if (sight) {
-        const total = sight.price * totalPax;
+        const adultTotal = sight.adultPrice * adults;
+        const childTotal = sight.childPrice * (childrenWithBed + childrenWithoutBed);
+        const total = adultTotal + childTotal;
+        
         setItems((prev) => [
           ...prev,
           {
             type: "sightseeing",
             name: sight.name,
             quantity: totalPax,
-            unitPrice: sight.price,
+            unitPrice: sight.adultPrice,
             total,
+            details: `${adults} adults, ${childrenWithBed + childrenWithoutBed} children`,
           },
         ]);
       }
@@ -150,15 +197,16 @@ export default function CreateQuotation() {
     selectedMeals.forEach((id) => {
       const meal = mealOptions.find((m) => m.id === id);
       if (meal) {
-        const total = meal.price * totalPax;
+        const total = meal.price * totalPax * nights;
         setItems((prev) => [
           ...prev,
           {
             type: "meal",
             name: meal.name,
-            quantity: totalPax,
+            quantity: totalPax * nights,
             unitPrice: meal.price,
             total,
+            details: `${totalPax} pax × ${nights} days`,
           },
         ]);
       }
@@ -202,7 +250,6 @@ export default function CreateQuotation() {
 
     const quotationId = `QT-${Date.now()}`;
     toast.success(`Quotation ${quotationId} generated successfully!`);
-    // In a real app, this would save to database and navigate to quotations list
   };
 
   const getItemIcon = (type: QuotationItem["type"]) => {
@@ -233,20 +280,21 @@ export default function CreateQuotation() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Form */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Basic Details */}
-          <Card className="shadow-wtb-sm">
-            <CardHeader>
+          {/* Customer & Trip Details */}
+          <Card className="shadow-wtb-sm border-l-4 border-l-primary">
+            <CardHeader className="pb-4">
               <CardTitle className="text-lg font-serif flex items-center gap-2">
                 <Users className="w-5 h-5 text-primary" />
                 Customer & Trip Details
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <CardContent className="space-y-6">
+              {/* Customer Selection */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <Label>Customer</Label>
+                  <Label className="text-sm font-medium">Customer *</Label>
                   <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-                    <SelectTrigger>
+                    <SelectTrigger className="mt-1.5 bg-background">
                       <SelectValue placeholder="Select customer" />
                     </SelectTrigger>
                     <SelectContent>
@@ -259,9 +307,9 @@ export default function CreateQuotation() {
                   </Select>
                 </div>
                 <div>
-                  <Label>Quotation Type</Label>
+                  <Label className="text-sm font-medium">Quotation Type</Label>
                   <Select value={quotationType} onValueChange={setQuotationType}>
-                    <SelectTrigger>
+                    <SelectTrigger className="mt-1.5 bg-background">
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -272,143 +320,227 @@ export default function CreateQuotation() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <Label>Adults</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={adults}
-                    onChange={(e) => setAdults(Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <Label>Children (2-12)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={children}
-                    onChange={(e) => setChildren(Number(e.target.value))}
-                  />
-                </div>
-                <div>
-                  <Label>Infants (0-2)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={infants}
-                    onChange={(e) => setInfants(Number(e.target.value))}
+                  <Label className="text-sm font-medium">Nationality</Label>
+                  <Input 
+                    placeholder="e.g., Indian"
+                    value={nationality}
+                    onChange={(e) => setNationality(e.target.value)}
+                    className="mt-1.5"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Arrival Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !arrivalDate && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {arrivalDate ? format(arrivalDate, "PPP") : "Select date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={arrivalDate}
-                        onSelect={setArrivalDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+              <Separator />
+
+              {/* Passenger Details */}
+              <div>
+                <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                  <User className="w-4 h-4" />
+                  Passenger Details
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <Label className="text-xs text-muted-foreground">Adults</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={adults}
+                      onChange={(e) => setAdults(Number(e.target.value))}
+                      className="mt-1 bg-background h-9"
+                    />
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <Label className="text-xs text-muted-foreground">Children (with bed)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={childrenWithBed}
+                      onChange={(e) => setChildrenWithBed(Number(e.target.value))}
+                      className="mt-1 bg-background h-9"
+                    />
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <Label className="text-xs text-muted-foreground">Children (w/o bed)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={childrenWithoutBed}
+                      onChange={(e) => setChildrenWithoutBed(Number(e.target.value))}
+                      className="mt-1 bg-background h-9"
+                    />
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Baby className="w-3 h-3" /> Infants
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={infants}
+                      onChange={(e) => setInfants(Number(e.target.value))}
+                      className="mt-1 bg-background h-9"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <Label>Departure Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !departureDate && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {departureDate ? format(departureDate, "PPP") : "Select date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={departureDate}
-                        onSelect={setDepartureDate}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+              </div>
+
+              <Separator />
+
+              {/* Travel Dates */}
+              <div>
+                <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                  <Plane className="w-4 h-4" />
+                  Travel Dates
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <Label className="text-xs text-muted-foreground">Arrival Date *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal mt-1 bg-background",
+                            !arrivalDate && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {arrivalDate ? format(arrivalDate, "dd MMM yyyy") : "Select date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={arrivalDate}
+                          onSelect={setArrivalDate}
+                          initialFocus
+                          className="pointer-events-auto"
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 border">
+                    <Label className="text-xs text-muted-foreground">Departure Date *</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal mt-1 bg-background",
+                            !departureDate && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {departureDate ? format(departureDate, "dd MMM yyyy") : "Select date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={departureDate}
+                          onSelect={setDepartureDate}
+                          initialFocus
+                          className="pointer-events-auto"
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </div>
+                {nights > 0 && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Duration: <span className="font-medium text-foreground">{nights} nights</span>
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
 
           {/* Hotel Selection */}
-          <Card className="shadow-wtb-sm">
-            <CardHeader>
+          <Card className="shadow-wtb-sm border-l-4 border-l-wtb-cyan">
+            <CardHeader className="pb-4">
               <CardTitle className="text-lg font-serif flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-primary" />
+                <Building2 className="w-5 h-5 text-wtb-cyan" />
                 Hotel Accommodation
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-4 gap-4">
-                <div className="col-span-2">
-                  <Label>Select Hotel</Label>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <Label className="text-sm font-medium">Select Hotel</Label>
                   <Select value={selectedHotel} onValueChange={setSelectedHotel}>
-                    <SelectTrigger>
+                    <SelectTrigger className="mt-1.5 bg-background">
                       <SelectValue placeholder="Choose hotel" />
                     </SelectTrigger>
                     <SelectContent>
-                      {hotels.map((h) => (
+                      {activeHotels.map((h) => (
                         <SelectItem key={h.id} value={h.id}>
-                          {h.name} (${h.pricePerNight}/night)
+                          {h.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label>Room Type</Label>
-                  <Select value={roomType} onValueChange={setRoomType}>
-                    <SelectTrigger>
+                  <Label className="text-sm font-medium">Room Type</Label>
+                  <Select value={roomType} onValueChange={(v) => setRoomType(v as any)}>
+                    <SelectTrigger className="mt-1.5 bg-background">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="single">Single</SelectItem>
-                      <SelectItem value="double">Double</SelectItem>
-                      <SelectItem value="triple">Triple</SelectItem>
-                      <SelectItem value="quad">Quad</SelectItem>
+                      <SelectItem value="single">Single Room</SelectItem>
+                      <SelectItem value="double">Double Room</SelectItem>
+                      <SelectItem value="triple">Triple Room</SelectItem>
+                      <SelectItem value="quad">Quad Room</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label>Nights</Label>
+                  <Label className="text-sm font-medium">Meal Plan</Label>
+                  <Select value={mealPlan} onValueChange={setMealPlan}>
+                    <SelectTrigger className="mt-1.5 bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="RO">Room Only</SelectItem>
+                      <SelectItem value="BB">Bed & Breakfast</SelectItem>
+                      <SelectItem value="HB">Half Board</SelectItem>
+                      <SelectItem value="FB">Full Board</SelectItem>
+                      <SelectItem value="AI">All Inclusive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">No. of Rooms</Label>
                   <Input
                     type="number"
                     min={1}
-                    value={nights}
-                    onChange={(e) => setNights(Number(e.target.value))}
+                    value={numberOfRooms}
+                    onChange={(e) => setNumberOfRooms(Number(e.target.value))}
+                    className="mt-1.5"
                   />
                 </div>
               </div>
-              <Button onClick={addHotel} disabled={!selectedHotel}>
+
+              {/* Rate Preview */}
+              {selectedHotelData && arrivalDate && departureDate && nights > 0 && (
+                <div className="p-4 rounded-lg bg-gradient-to-r from-primary/5 to-wtb-cyan/5 border">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Rate Preview</p>
+                      <p className="font-semibold">
+                        {selectedHotelData.name} - {roomType.charAt(0).toUpperCase() + roomType.slice(1)} Room
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">{nights} nights × {numberOfRooms} room(s)</p>
+                      <p className="text-xl font-bold text-primary">${getHotelPrice()}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <Button onClick={addHotel} disabled={!selectedHotel || nights === 0}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add Hotel
               </Button>
@@ -416,19 +548,31 @@ export default function CreateQuotation() {
           </Card>
 
           {/* Sightseeing Selection */}
-          <Card className="shadow-wtb-sm">
-            <CardHeader>
+          <Card className="shadow-wtb-sm border-l-4 border-l-wtb-gold">
+            <CardHeader className="pb-4">
               <CardTitle className="text-lg font-serif flex items-center gap-2">
                 <MapPin className="w-5 h-5 text-wtb-gold" />
                 Sightseeing & Tours
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {sightseeingOptions.map((sight) => (
                   <div
                     key={sight.id}
-                    className="flex items-center space-x-2 p-3 rounded-lg border hover:bg-muted/50 transition-colors"
+                    className={cn(
+                      "flex items-center space-x-3 p-3 rounded-lg border transition-colors cursor-pointer",
+                      selectedSightseeing.includes(sight.id)
+                        ? "bg-wtb-gold/10 border-wtb-gold/30"
+                        : "hover:bg-muted/50"
+                    )}
+                    onClick={() => {
+                      if (selectedSightseeing.includes(sight.id)) {
+                        setSelectedSightseeing(prev => prev.filter(id => id !== sight.id));
+                      } else {
+                        setSelectedSightseeing(prev => [...prev, sight.id]);
+                      }
+                    }}
                   >
                     <Checkbox
                       id={`sight-${sight.id}`}
@@ -443,15 +587,12 @@ export default function CreateQuotation() {
                         }
                       }}
                     />
-                    <label
-                      htmlFor={`sight-${sight.id}`}
-                      className="flex-1 cursor-pointer"
-                    >
-                      <span className="font-medium text-sm">{sight.name}</span>
-                      <span className="text-xs text-muted-foreground ml-2">
-                        ${sight.price}/person
-                      </span>
-                    </label>
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{sight.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Adult: ${sight.adultPrice} | Child: ${sight.childPrice}
+                      </p>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -460,15 +601,15 @@ export default function CreateQuotation() {
                 disabled={selectedSightseeing.length === 0}
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Add Sightseeing
+                Add Selected Tours
               </Button>
             </CardContent>
           </Card>
 
           {/* Meals & Transfers */}
-          <div className="grid grid-cols-2 gap-6">
-            <Card className="shadow-wtb-sm">
-              <CardHeader>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="shadow-wtb-sm border-l-4 border-l-wtb-success">
+              <CardHeader className="pb-4">
                 <CardTitle className="text-lg font-serif flex items-center gap-2">
                   <UtensilsCrossed className="w-5 h-5 text-wtb-success" />
                   Meals
@@ -478,7 +619,19 @@ export default function CreateQuotation() {
                 {mealOptions.map((meal) => (
                   <div
                     key={meal.id}
-                    className="flex items-center space-x-2 p-2 rounded border hover:bg-muted/50"
+                    className={cn(
+                      "flex items-center space-x-2 p-3 rounded-lg border transition-colors cursor-pointer",
+                      selectedMeals.includes(meal.id)
+                        ? "bg-wtb-success/10 border-wtb-success/30"
+                        : "hover:bg-muted/50"
+                    )}
+                    onClick={() => {
+                      if (selectedMeals.includes(meal.id)) {
+                        setSelectedMeals(prev => prev.filter(id => id !== meal.id));
+                      } else {
+                        setSelectedMeals(prev => [...prev, meal.id]);
+                      }
+                    }}
                   >
                     <Checkbox
                       id={`meal-${meal.id}`}
@@ -493,9 +646,10 @@ export default function CreateQuotation() {
                         }
                       }}
                     />
-                    <label htmlFor={`meal-${meal.id}`} className="flex-1 text-sm cursor-pointer">
-                      {meal.name} - ${meal.price}
-                    </label>
+                    <div className="flex-1">
+                      <span className="text-sm font-medium">{meal.name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">${meal.price}/person</span>
+                    </div>
                   </div>
                 ))}
                 <Button
@@ -510,8 +664,8 @@ export default function CreateQuotation() {
               </CardContent>
             </Card>
 
-            <Card className="shadow-wtb-sm">
-              <CardHeader>
+            <Card className="shadow-wtb-sm border-l-4 border-l-wtb-cyan">
+              <CardHeader className="pb-4">
                 <CardTitle className="text-lg font-serif flex items-center gap-2">
                   <Car className="w-5 h-5 text-wtb-cyan" />
                   Transfers
@@ -521,7 +675,19 @@ export default function CreateQuotation() {
                 {transferOptions.map((transfer) => (
                   <div
                     key={transfer.id}
-                    className="flex items-center space-x-2 p-2 rounded border hover:bg-muted/50"
+                    className={cn(
+                      "flex items-center space-x-2 p-3 rounded-lg border transition-colors cursor-pointer",
+                      selectedTransfers.includes(transfer.id)
+                        ? "bg-wtb-cyan/10 border-wtb-cyan/30"
+                        : "hover:bg-muted/50"
+                    )}
+                    onClick={() => {
+                      if (selectedTransfers.includes(transfer.id)) {
+                        setSelectedTransfers(prev => prev.filter(id => id !== transfer.id));
+                      } else {
+                        setSelectedTransfers(prev => [...prev, transfer.id]);
+                      }
+                    }}
                   >
                     <Checkbox
                       id={`transfer-${transfer.id}`}
@@ -536,9 +702,10 @@ export default function CreateQuotation() {
                         }
                       }}
                     />
-                    <label htmlFor={`transfer-${transfer.id}`} className="flex-1 text-sm cursor-pointer">
-                      {transfer.name} - ${transfer.price}
-                    </label>
+                    <div className="flex-1">
+                      <span className="text-sm font-medium">{transfer.name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">${transfer.price}</span>
+                    </div>
                   </div>
                 ))}
                 <Button
@@ -556,7 +723,7 @@ export default function CreateQuotation() {
 
           {/* Notes */}
           <Card className="shadow-wtb-sm">
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle className="text-lg font-serif">Additional Notes</CardTitle>
             </CardHeader>
             <CardContent>
@@ -565,6 +732,7 @@ export default function CreateQuotation() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={4}
+                className="resize-none"
               />
             </CardContent>
           </Card>
@@ -581,15 +749,32 @@ export default function CreateQuotation() {
             </CardHeader>
             <CardContent className="p-4 space-y-4">
               {/* Pax Info */}
-              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                <span className="text-sm text-muted-foreground">Total Passengers</span>
-                <span className="font-semibold">
-                  {adults} Adults, {children} Children, {infants} Infants
-                </span>
+              <div className="p-3 bg-muted rounded-lg space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Adults</span>
+                  <span className="font-medium">{adults}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Children (with bed)</span>
+                  <span className="font-medium">{childrenWithBed}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Children (w/o bed)</span>
+                  <span className="font-medium">{childrenWithoutBed}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Infants</span>
+                  <span className="font-medium">{infants}</span>
+                </div>
+                <Separator className="my-2" />
+                <div className="flex justify-between text-sm font-semibold">
+                  <span>Total Passengers</span>
+                  <span>{totalPax + infants}</span>
+                </div>
               </div>
 
               {/* Items List */}
-              <div className="space-y-2 max-h-80 overflow-y-auto scrollbar-thin">
+              <div className="space-y-2 max-h-80 overflow-y-auto">
                 {items.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-8">
                     No items added yet. Add hotels, sightseeing, meals or transfers.
@@ -600,14 +785,17 @@ export default function CreateQuotation() {
                     return (
                       <div
                         key={index}
-                        className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 group"
+                        className="flex items-start justify-between p-3 rounded-lg border hover:bg-muted/50 group"
                       >
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <div className={cn("w-8 h-8 rounded flex items-center justify-center", getItemColor(item.type))}>
+                        <div className="flex items-start gap-2 flex-1 min-w-0">
+                          <div className={cn("w-8 h-8 rounded flex items-center justify-center shrink-0", getItemColor(item.type))}>
                             <Icon className="w-4 h-4" />
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium truncate">{item.name}</p>
+                            {item.details && (
+                              <p className="text-xs text-muted-foreground">{item.details}</p>
+                            )}
                             <p className="text-xs text-muted-foreground">
                               {item.quantity} × ${item.unitPrice}
                             </p>
