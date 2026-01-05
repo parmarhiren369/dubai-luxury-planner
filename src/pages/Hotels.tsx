@@ -26,7 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Download,
   Upload,
@@ -36,76 +43,15 @@ import {
   Trash2,
   Building2,
   FileSpreadsheet,
+  CalendarIcon,
+  DollarSign,
+  Settings2,
 } from "lucide-react";
 import { Hotel, exportToExcel, parseExcelFile, downloadTemplate } from "@/lib/excelUtils";
+import { useHotelStore, RatePeriod } from "@/lib/hotelStore";
 import { toast } from "sonner";
-
-const initialHotels: Hotel[] = [
-  {
-    id: "1",
-    name: "Atlantis The Palm",
-    category: "5 Star Deluxe",
-    location: "Palm Jumeirah",
-    singleRoom: 450,
-    doubleRoom: 550,
-    tripleRoom: 700,
-    quadRoom: 850,
-    extraBed: 75,
-    childWithBed: 50,
-    childWithoutBed: 25,
-    infant: 0,
-    mealPlan: "BB",
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Burj Al Arab",
-    category: "7 Star",
-    location: "Jumeirah",
-    singleRoom: 1200,
-    doubleRoom: 1500,
-    tripleRoom: 2000,
-    quadRoom: 2500,
-    extraBed: 200,
-    childWithBed: 150,
-    childWithoutBed: 75,
-    infant: 0,
-    mealPlan: "HB",
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "JW Marriott Marquis",
-    category: "5 Star",
-    location: "Business Bay",
-    singleRoom: 280,
-    doubleRoom: 350,
-    tripleRoom: 450,
-    quadRoom: 550,
-    extraBed: 50,
-    childWithBed: 35,
-    childWithoutBed: 20,
-    infant: 0,
-    mealPlan: "BB",
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Address Downtown",
-    category: "5 Star",
-    location: "Downtown Dubai",
-    singleRoom: 380,
-    doubleRoom: 480,
-    tripleRoom: 620,
-    quadRoom: 780,
-    extraBed: 65,
-    childWithBed: 45,
-    childWithoutBed: 25,
-    infant: 0,
-    mealPlan: "BB",
-    status: "active",
-  },
-];
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 
 const hotelTemplate: Omit<Hotel, "id"> = {
   name: "",
@@ -124,12 +70,21 @@ const hotelTemplate: Omit<Hotel, "id"> = {
 };
 
 export default function Hotels() {
-  const [hotels, setHotels] = useState<Hotel[]>(initialHotels);
+  const { hotels, ratePeriods, setHotels, addHotel, updateHotel, deleteHotel, importHotels, addRatePeriod, deleteRatePeriod } = useHotelStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
   const [formData, setFormData] = useState<Omit<Hotel, "id">>(hotelTemplate);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeTab, setActiveTab] = useState("management");
+
+  // Rate Management State
+  const [selectedHotelForRate, setSelectedHotelForRate] = useState("");
+  const [selectedRoomType, setSelectedRoomType] = useState<"single" | "double" | "triple" | "quad">("double");
+  const [selectedMealPlan, setSelectedMealPlan] = useState("BB");
+  const [rateStartDate, setRateStartDate] = useState<Date>();
+  const [rateEndDate, setRateEndDate] = useState<Date>();
+  const [newRate, setNewRate] = useState<number>(0);
 
   const filteredHotels = hotels.filter(
     (hotel) =>
@@ -150,13 +105,8 @@ export default function Hotels() {
 
     try {
       const data = await parseExcelFile<Omit<Hotel, "id">>(file);
-      const newHotels = data.map((hotel, index) => ({
-        ...hotel,
-        id: `imported-${Date.now()}-${index}`,
-        status: hotel.status || "active",
-      })) as Hotel[];
-      setHotels((prev) => [...prev, ...newHotels]);
-      toast.success(`${newHotels.length} hotels imported successfully!`);
+      const count = importHotels(data);
+      toast.success(`${count} hotels imported successfully!`);
     } catch (error) {
       toast.error("Failed to import file. Please check the format.");
     }
@@ -173,18 +123,14 @@ export default function Hotels() {
 
   const handleSubmit = () => {
     if (editingHotel) {
-      setHotels((prev) =>
-        prev.map((h) =>
-          h.id === editingHotel.id ? { ...formData, id: editingHotel.id } : h
-        )
-      );
+      updateHotel(editingHotel.id, formData);
       toast.success("Hotel updated successfully!");
     } else {
       const newHotel: Hotel = {
         ...formData,
         id: `hotel-${Date.now()}`,
       };
-      setHotels((prev) => [...prev, newHotel]);
+      addHotel(newHotel);
       toast.success("Hotel added successfully!");
     }
     setIsDialogOpen(false);
@@ -199,7 +145,7 @@ export default function Hotels() {
   };
 
   const handleDelete = (id: string) => {
-    setHotels((prev) => prev.filter((h) => h.id !== id));
+    deleteHotel(id);
     toast.success("Hotel deleted successfully!");
   };
 
@@ -208,6 +154,38 @@ export default function Hotels() {
     setFormData(hotelTemplate);
     setIsDialogOpen(true);
   };
+
+  const handleAddRatePeriod = () => {
+    if (!selectedHotelForRate || !rateStartDate || !rateEndDate || newRate <= 0) {
+      toast.error("Please fill in all rate period fields");
+      return;
+    }
+
+    addRatePeriod({
+      hotelId: selectedHotelForRate,
+      roomType: selectedRoomType,
+      mealPlan: selectedMealPlan,
+      startDate: rateStartDate,
+      endDate: rateEndDate,
+      rate: newRate,
+    });
+
+    toast.success("Rate period added successfully!");
+    setNewRate(0);
+    setRateStartDate(undefined);
+    setRateEndDate(undefined);
+  };
+
+  const getHotelName = (hotelId: string) => {
+    return hotels.find(h => h.id === hotelId)?.name || "Unknown";
+  };
+
+  const filteredRatePeriods = ratePeriods.filter(r => {
+    if (selectedHotelForRate && r.hotelId !== selectedHotelForRate) return false;
+    if (selectedRoomType && r.roomType !== selectedRoomType) return false;
+    if (selectedMealPlan && r.mealPlan !== selectedMealPlan) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -245,101 +223,351 @@ export default function Hotels() {
         </Button>
       </PageHeader>
 
-      {/* Search */}
-      <Card className="shadow-wtb-sm">
-        <CardContent className="py-4">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search hotels..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="bg-muted/50 p-1">
+          <TabsTrigger value="management" className="data-[state=active]:bg-background">
+            <Building2 className="w-4 h-4 mr-2" />
+            Hotel Management
+          </TabsTrigger>
+          <TabsTrigger value="rates" className="data-[state=active]:bg-background">
+            <Settings2 className="w-4 h-4 mr-2" />
+            Rate Management
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Hotels Table */}
-      <Card className="shadow-wtb-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="font-semibold">Hotel Name</TableHead>
-                <TableHead className="font-semibold">Category</TableHead>
-                <TableHead className="font-semibold">Location</TableHead>
-                <TableHead className="font-semibold text-right">Single</TableHead>
-                <TableHead className="font-semibold text-right">Double</TableHead>
-                <TableHead className="font-semibold text-right">Triple</TableHead>
-                <TableHead className="font-semibold text-right">Quad</TableHead>
-                <TableHead className="font-semibold">Meal</TableHead>
-                <TableHead className="font-semibold">Status</TableHead>
-                <TableHead className="font-semibold text-center">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredHotels.map((hotel) => (
-                <TableRow key={hotel.id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Building2 className="w-4 h-4 text-primary" />
-                      </div>
-                      <span className="font-medium">{hotel.name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="bg-wtb-gold/10 text-wtb-gold border-wtb-gold/20">
-                      {hotel.category}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{hotel.location}</TableCell>
-                  <TableCell className="text-right font-medium">${hotel.singleRoom}</TableCell>
-                  <TableCell className="text-right font-medium">${hotel.doubleRoom}</TableCell>
-                  <TableCell className="text-right font-medium">${hotel.tripleRoom}</TableCell>
-                  <TableCell className="text-right font-medium">${hotel.quadRoom}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{hotel.mealPlan}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        hotel.status === "active"
-                          ? "bg-wtb-success/10 text-wtb-success border-wtb-success/20"
-                          : "bg-muted text-muted-foreground"
-                      }
-                    >
-                      {hotel.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-center gap-2">
+        {/* Hotel Management Tab */}
+        <TabsContent value="management" className="space-y-6">
+          {/* Search */}
+          <Card className="shadow-wtb-sm">
+            <CardContent className="py-4">
+              <div className="relative max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search hotels..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Hotels Table */}
+          <Card className="shadow-wtb-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="font-semibold">Hotel Name</TableHead>
+                    <TableHead className="font-semibold">Category</TableHead>
+                    <TableHead className="font-semibold">Location</TableHead>
+                    <TableHead className="font-semibold text-right">Single</TableHead>
+                    <TableHead className="font-semibold text-right">Double</TableHead>
+                    <TableHead className="font-semibold text-right">Triple</TableHead>
+                    <TableHead className="font-semibold text-right">Quad</TableHead>
+                    <TableHead className="font-semibold">Meal</TableHead>
+                    <TableHead className="font-semibold">Status</TableHead>
+                    <TableHead className="font-semibold text-center">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredHotels.map((hotel) => (
+                    <TableRow key={hotel.id} className="hover:bg-muted/30 transition-colors">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <Building2 className="w-4 h-4 text-primary" />
+                          </div>
+                          <span className="font-medium">{hotel.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-wtb-gold/10 text-wtb-gold border-wtb-gold/20">
+                          {hotel.category}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{hotel.location}</TableCell>
+                      <TableCell className="text-right font-medium">${hotel.singleRoom}</TableCell>
+                      <TableCell className="text-right font-medium">${hotel.doubleRoom}</TableCell>
+                      <TableCell className="text-right font-medium">${hotel.tripleRoom}</TableCell>
+                      <TableCell className="text-right font-medium">${hotel.quadRoom}</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{hotel.mealPlan}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={
+                            hotel.status === "active"
+                              ? "bg-wtb-success/10 text-wtb-success border-wtb-success/20"
+                              : "bg-muted text-muted-foreground"
+                          }
+                        >
+                          {hotel.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
+                            onClick={() => handleEdit(hotel)}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => handleDelete(hotel.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* Rate Management Tab */}
+        <TabsContent value="rates" className="space-y-6">
+          <Card className="shadow-wtb-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-serif flex items-center gap-2">
+                <DollarSign className="w-5 h-5 text-primary" />
+                Rate Management
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Set daily rates for room types and meal plans
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div>
+                  <Label>Hotel</Label>
+                  <Select value={selectedHotelForRate} onValueChange={setSelectedHotelForRate}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Select Hotel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {hotels.map((hotel) => (
+                        <SelectItem key={hotel.id} value={hotel.id}>
+                          {hotel.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Room Type</Label>
+                  <Select value={selectedRoomType} onValueChange={(v) => setSelectedRoomType(v as any)}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Select Room Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="single">Single Room</SelectItem>
+                      <SelectItem value="double">Double Room</SelectItem>
+                      <SelectItem value="triple">Triple Room</SelectItem>
+                      <SelectItem value="quad">Quad Room</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Meal Plan</Label>
+                  <Select value={selectedMealPlan} onValueChange={setSelectedMealPlan}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Select Meal Plan" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="RO">Room Only</SelectItem>
+                      <SelectItem value="BB">Bed & Breakfast</SelectItem>
+                      <SelectItem value="HB">Half Board</SelectItem>
+                      <SelectItem value="FB">Full Board</SelectItem>
+                      <SelectItem value="AI">All Inclusive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Start Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
-                        onClick={() => handleEdit(hotel)}
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal bg-background",
+                          !rateStartDate && "text-muted-foreground"
+                        )}
                       >
-                        <Pencil className="w-4 h-4" />
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {rateStartDate ? format(rateStartDate, "dd/MM/yyyy") : "Select date"}
                       </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={rateStartDate}
+                        onSelect={setRateStartDate}
+                        initialFocus
+                        className="pointer-events-auto"
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div>
+                  <Label>End Date</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => handleDelete(hotel.id)}
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal bg-background",
+                          !rateEndDate && "text-muted-foreground"
+                        )}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {rateEndDate ? format(rateEndDate, "dd/MM/yyyy") : "Select date"}
                       </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={rateEndDate}
+                        onSelect={setRateEndDate}
+                        initialFocus
+                        className="pointer-events-auto"
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+
+              {/* Add Rate Section */}
+              <div className="flex items-end gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="flex-1">
+                  <Label>Daily Rate ($)</Label>
+                  <Input
+                    type="number"
+                    placeholder="Enter rate"
+                    value={newRate || ""}
+                    onChange={(e) => setNewRate(Number(e.target.value))}
+                    className="bg-background"
+                  />
+                </div>
+                <Button onClick={handleAddRatePeriod} disabled={!selectedHotelForRate || !rateStartDate || !rateEndDate}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Rate Period
+                </Button>
+              </div>
+
+              {/* Rate Periods Table */}
+              <div className="rounded-lg border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="font-semibold">Hotel</TableHead>
+                      <TableHead className="font-semibold">Room Type</TableHead>
+                      <TableHead className="font-semibold">Meal Plan</TableHead>
+                      <TableHead className="font-semibold">Start Date</TableHead>
+                      <TableHead className="font-semibold">End Date</TableHead>
+                      <TableHead className="font-semibold text-right">Rate</TableHead>
+                      <TableHead className="font-semibold text-center">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredRatePeriods.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          No rate periods configured. Add a rate period above.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredRatePeriods.map((period) => (
+                        <TableRow key={period.id} className="hover:bg-muted/30">
+                          <TableCell className="font-medium">{getHotelName(period.hotelId)}</TableCell>
+                          <TableCell className="capitalize">{period.roomType}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{period.mealPlan}</Badge>
+                          </TableCell>
+                          <TableCell>{format(period.startDate, "dd/MM/yyyy")}</TableCell>
+                          <TableCell>{format(period.endDate, "dd/MM/yyyy")}</TableCell>
+                          <TableCell className="text-right font-semibold text-primary">${period.rate}</TableCell>
+                          <TableCell className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => deleteRatePeriod(period.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Base Rates Reference */}
+          <Card className="shadow-wtb-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-serif">Base Rates (from Excel Import)</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                These are the default rates from hotel data. Rate periods override these for specific date ranges.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-lg border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="font-semibold">Hotel</TableHead>
+                      <TableHead className="font-semibold text-right">Single</TableHead>
+                      <TableHead className="font-semibold text-right">Double</TableHead>
+                      <TableHead className="font-semibold text-right">Triple</TableHead>
+                      <TableHead className="font-semibold text-right">Quad</TableHead>
+                      <TableHead className="font-semibold text-right">Extra Bed</TableHead>
+                      <TableHead className="font-semibold text-right">Child w/ Bed</TableHead>
+                      <TableHead className="font-semibold text-right">Child w/o Bed</TableHead>
+                      <TableHead className="font-semibold">Meal Plan</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {hotels.filter(h => h.status === "active").map((hotel) => (
+                      <TableRow key={hotel.id} className="hover:bg-muted/30">
+                        <TableCell className="font-medium">{hotel.name}</TableCell>
+                        <TableCell className="text-right">${hotel.singleRoom}</TableCell>
+                        <TableCell className="text-right">${hotel.doubleRoom}</TableCell>
+                        <TableCell className="text-right">${hotel.tripleRoom}</TableCell>
+                        <TableCell className="text-right">${hotel.quadRoom}</TableCell>
+                        <TableCell className="text-right">${hotel.extraBed}</TableCell>
+                        <TableCell className="text-right">${hotel.childWithBed}</TableCell>
+                        <TableCell className="text-right">${hotel.childWithoutBed}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{hotel.mealPlan}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Add/Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
