@@ -63,7 +63,9 @@ interface QuotationItem {
 }
 
 export default function CreateQuotation() {
-  const { hotels, calculateStayCost, getRateForDate } = useHotelStore();
+  const store = useHotelStore();
+  const hotels = store.getHotels();
+  const { calculateStayCost, getRateForDate } = store;
 
   // Master Data State
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -215,14 +217,14 @@ export default function CreateQuotation() {
     selectedMeals.forEach((id) => {
       const meal = mealOptions.find((m) => m.id === id);
       if (meal) {
-        const total = meal.price * totalPax * nights;
+        const total = meal.pricePerPerson * totalPax * nights;
         setItems((prev) => [
           ...prev,
           {
             type: "meal",
             name: meal.name,
             quantity: totalPax * nights,
-            unitPrice: meal.price,
+            unitPrice: meal.pricePerPerson,
             total,
             details: `${totalPax} pax × ${nights} days`,
           },
@@ -260,14 +262,44 @@ export default function CreateQuotation() {
   const grandTotal = items.reduce((acc, item) => acc + item.total, 0);
   const perHeadCost = totalPax > 0 ? grandTotal / totalPax : 0;
 
-  const generateQuotation = () => {
+  const generateQuotation = async () => {
     if (!selectedCustomer || !arrivalDate || !departureDate || items.length === 0) {
       toast.error("Please fill in all required fields and add items");
       return;
     }
 
-    const quotationId = `QT-${Date.now()}`;
-    toast.success(`Quotation ${quotationId} generated successfully!`);
+    try {
+      setIsSubmitting(true);
+      const customer = customers.find(c => c.id === selectedCustomer);
+
+      const payload = {
+        customerId: selectedCustomer,
+        customerName: customer?.name || "Unknown",
+        type: quotationType,
+        nationality,
+        adults,
+        childrenWithBed,
+        childrenWithoutBed,
+        infants,
+        arrivalDate,
+        departureDate,
+        items,
+        notes
+      };
+
+      await quotationsApi.create(payload);
+      toast.success("Quotation generated successfully!");
+
+      // Reset form or redirect? For now, just reset items to prevent duplicate submission
+      setItems([]);
+      // Maybe navigate to list page? 
+      // window.location.href = "/quotations"; // naive, usage of router is better but not passed here.
+    } catch (error: any) {
+      console.error("Failed to create quotation:", error);
+      toast.error(error.message || "Failed to create quotation");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const getItemIcon = (type: QuotationItem["type"]) => {
@@ -287,6 +319,14 @@ export default function CreateQuotation() {
       case "transfer": return "bg-wtb-cyan/10 text-wtb-cyan";
     }
   };
+
+  if (isLoadingData) {
+    return (
+      <div className="flex items-center justify-center h-full min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -666,7 +706,7 @@ export default function CreateQuotation() {
                     />
                     <div className="flex-1">
                       <span className="text-sm font-medium">{meal.name}</span>
-                      <span className="text-xs text-muted-foreground ml-2">AED {meal.price}/person</span>
+                      <span className="text-xs text-muted-foreground ml-2">AED {meal.pricePerPerson}/person</span>
                     </div>
                   </div>
                 ))}
@@ -861,9 +901,18 @@ export default function CreateQuotation() {
 
               {/* Actions */}
               <div className="pt-4 space-y-2">
-                <Button className="w-full" size="lg" onClick={generateQuotation}>
-                  <FileText className="w-4 h-4 mr-2" />
-                  Generate Quotation
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={generateQuotation}
+                  disabled={isSubmitting || items.length === 0}
+                >
+                  {isSubmitting ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <FileText className="w-4 h-4 mr-2" />
+                  )}
+                  {isSubmitting ? "Generating..." : "Generate Quotation"}
                 </Button>
                 <Button variant="outline" className="w-full">
                   Save as Draft

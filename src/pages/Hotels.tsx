@@ -48,7 +48,7 @@ import {
   Settings2,
   Copy,
 } from "lucide-react";
-import { Hotel, exportToExcel, parseExcelFile, downloadTemplate } from "@/lib/excelUtils";
+import { Hotel, exportToExcel, parseExcelFile, downloadTemplate, transformHotelImportData } from "@/lib/excelUtils";
 import { useHotelStore } from "@/lib/hotelStore";
 import { hotelsApi } from "@/lib/api";
 import { toast } from "sonner";
@@ -96,6 +96,20 @@ export default function Hotels() {
   const [formData, setFormData] = useState<Omit<Hotel, "id">>(hotelTemplate);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("rates");
+
+  // Fetch hotels on mount
+  useEffect(() => {
+    const loadHotels = async () => {
+      try {
+        const data = await hotelsApi.getAll() as unknown as Hotel[];
+        store.setHotels(data);
+      } catch (error) {
+        console.error("Failed to load hotels:", error);
+        toast.error("Failed to load hotels data.");
+      }
+    };
+    loadHotels();
+  }, []);
 
   // Rate Management State
   const [selectedHotelForRate, setSelectedHotelForRate] = useState<string | null>(null);
@@ -198,11 +212,24 @@ export default function Hotels() {
     if (!file) return;
 
     try {
-      const data = await parseExcelFile<Omit<Hotel, "id">>(file);
-      const count = store.importHotels(data);
-      toast.success(`${count} hotels imported successfully!`);
-    } catch (error) {
-      toast.error("Failed to import file. Please check the format.");
+      const data = await parseExcelFile<any>(file);
+      const transformedData = transformHotelImportData(data);
+
+      if (transformedData.length === 0) {
+        toast.warning("No valid hotel data found in file.");
+        return;
+      }
+
+      const response: any = await hotelsApi.import(transformedData);
+      toast.success(`${response.count} hotels imported successfully!`);
+
+      // Refresh list
+      const updatedHotels = await hotelsApi.getAll();
+      store.setHotels(updatedHotels);
+
+    } catch (error: any) {
+      console.error("Import error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to import file. Please check the format.");
     }
 
     if (fileInputRef.current) {

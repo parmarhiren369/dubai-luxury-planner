@@ -96,8 +96,19 @@ export function parseExcelFile<T>(file: File): Promise<T[]> {
         const workbook = XLSX.read(data, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<T>(worksheet);
-        resolve(jsonData);
+        const jsonData = XLSX.utils.sheet_to_json<any>(worksheet); // Parse as any first
+
+        // Normalize keys (trim spaces, lowercase mapping if needed)
+        const normalizedData = jsonData.map((row) => {
+          const newRow: any = {};
+          Object.keys(row).forEach((key) => {
+            const normalizedKey = key.trim(); // Only trim for now to match interface strictly but allow spaces
+            newRow[normalizedKey] = row[key];
+          });
+          return newRow as T;
+        });
+
+        resolve(normalizedData);
       } catch (error) {
         reject(error);
       }
@@ -116,4 +127,39 @@ export function downloadTemplate<T extends Record<string, any>>(
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Template");
   XLSX.writeFile(workbook, `${filename}_template.xlsx`);
+}
+
+export function transformHotelImportData(data: any[]): Omit<Hotel, "id">[] {
+  return data
+    .filter(row => Object.keys(row).length > 0)
+    .map((row: any) => {
+      // Helper to get value case-insensitively
+      const getVal = (key: string) => {
+        const foundKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
+        return foundKey ? row[foundKey] : undefined;
+      };
+
+      const name = getVal('name');
+      if (!name) return null; // Skip invalid rows
+
+      return {
+        name: String(name),
+        category: String(getVal('category') || ""),
+        location: String(getVal('location') || ""),
+        singleRoom: Number(getVal('singleRoom') || 0),
+        doubleRoom: Number(getVal('doubleRoom') || 0),
+        tripleRoom: Number(getVal('tripleRoom') || 0),
+        quadRoom: Number(getVal('quadRoom') || 0),
+        sixRoom: Number(getVal('sixRoom') || 0),
+        extraBed: Number(getVal('extraBed') || 0),
+        childWithBed: Number(getVal('childWithBed') || 0),
+        childWithoutBed: Number(getVal('childWithoutBed') || 0),
+        childWithoutBed3to5: Number(getVal('childWithoutBed3to5') || 0),
+        childWithoutBed5to11: Number(getVal('childWithoutBed5to11') || 0),
+        infant: Number(getVal('infant') || 0),
+        mealPlan: String(getVal('mealPlan') || "BB"),
+        status: getVal('status') === "inactive" ? "inactive" : "active",
+      };
+    })
+    .filter((hotel): hotel is Omit<Hotel, "id"> => hotel !== null);
 }

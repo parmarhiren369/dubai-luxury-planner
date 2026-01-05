@@ -129,48 +129,20 @@ export const hotelStore = {
     notifyListeners();
   },
 
-  importHotels: (importedData: Partial<Omit<Hotel, "id">>[]) => {
-    const currentRatePeriods = [...ratePeriods];
-    const currentHotels = [...hotelsData];
+  importHotels: (newHotels: any[]) => {
+    // We assume the data passed here is already transformed and ready or comes from the API
+    // Actually, if we are using the API, we might just reload the whole list.
+    // But for optimistic UI updates or hybrid approaches, we can keep a simple version.
 
-    try {
-      const newHotels = importedData.map((hotel, index) => {
-        if (!hotel.name) throw new Error(`Hotel name is missing in row ${index + 2}`);
-        const newHotel: Hotel = {
-          id: `imported-${Date.now()}-${index}`,
-          name: String(hotel.name || ""),
-          category: String(hotel.category || ""),
-          location: String(hotel.location || ""),
-          singleRoom: Number(hotel.singleRoom || 0),
-          doubleRoom: Number(hotel.doubleRoom || 0),
-          tripleRoom: Number(hotel.tripleRoom || 0),
-          quadRoom: Number(hotel.quadRoom || 0),
-          sixRoom: Number(hotel.sixRoom || 0),
-          extraBed: Number(hotel.extraBed || 0),
-          childWithBed: Number(hotel.childWithBed || 0),
-          childWithoutBed: Number(hotel.childWithoutBed || 0),
-          childWithoutBed3to5: Number(hotel.childWithoutBed3to5 || 0),
-          childWithoutBed5to11: Number(hotel.childWithoutBed5to11 || 0),
-          infant: Number(hotel.infant || 0),
-          mealPlan: String(hotel.mealPlan || "BB"),
-          status: hotel.status === "inactive" ? "inactive" : "active",
-        };
-        return newHotel;
-      });
+    // For now, let's just create valid Hotel objects if they are missing IDs (local import case)
+    // or use them as is.
+    const validHotels: Hotel[] = newHotels.map((h, i) => ({
+      ...h,
+      id: h.id || `imported-${Date.now()}-${i}`
+    }));
 
-      hotelStore.setHotels(newHotels);
-      ratePeriods = []; // Clear old rates on new import
-
-      notifyListeners();
-      return newHotels.length;
-    } catch (error) {
-      console.error("Import failed:", error);
-      // Rollback to last known good state
-      ratePeriods = currentRatePeriods;
-      hotelsData = currentHotels;
-      notifyListeners();
-      throw error; // Re-throw to be caught in UI
-    }
+    hotelStore.setHotels([...hotelsData, ...validHotels]);
+    return validHotels.length;
   },
 
   // Rate period management
@@ -338,7 +310,7 @@ export function useHotelStore() {
 
   React.useEffect(() => {
     const unsubscribe = hotelStore.subscribe(forceUpdate);
-    return unsubscribe;
+    return () => { unsubscribe(); };
   }, []);
 
   return hotelStore;
