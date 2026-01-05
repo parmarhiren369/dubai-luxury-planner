@@ -89,14 +89,14 @@ const listeners: Set<Listener> = new Set();
 
 // Room type mapping for fallback
 const ROOM_TYPE_MAP: Record<string, keyof Hotel> = {
-    SGL: "singleRoom",
-    DBL: "doubleRoom",
-    TPL: "tripleRoom",
-    QUAD: "quadRoom",
-    'EX. BED > 11YRS': "extraBed",
-    'CWB [3-11 YRS]': "childWithBed",
-    'CNB [3-5 YRS]': "childWithoutBed",
-    'CNB [5-11 YRS]': "childWithoutBed", // Note: mapped to the same field
+  SGL: "singleRoom",
+  DBL: "doubleRoom",
+  TPL: "tripleRoom",
+  QUAD: "quadRoom",
+  'EX. BED > 11YRS': "extraBed",
+  'CWB [3-11 YRS]': "childWithBed",
+  'CNB [3-5 YRS]': "childWithoutBed",
+  'CNB [5-11 YRS]': "childWithoutBed", // Note: mapped to the same field
 };
 
 
@@ -106,17 +106,17 @@ const notifyListeners = () => {
 
 export const hotelStore = {
   getHotels: () => hotelsData,
-  
+
   setHotels: (hotels: Hotel[]) => {
     if (hotels && hotels.length > 0) {
-        hotelsData = hotels;
-        lastKnownGoodHotelsData = JSON.parse(JSON.stringify(hotels)); // Deep copy
+      hotelsData = hotels;
+      lastKnownGoodHotelsData = JSON.parse(JSON.stringify(hotels)); // Deep copy
     } else {
-        hotelsData = JSON.parse(JSON.stringify(lastKnownGoodHotelsData)); // Deep copy
+      hotelsData = JSON.parse(JSON.stringify(lastKnownGoodHotelsData)); // Deep copy
     }
     notifyListeners();
   },
-  
+
   importHotels: (importedData: Partial<Omit<Hotel, "id">>[]) => {
     const currentRatePeriods = [...ratePeriods];
     const currentHotels = [...hotelsData];
@@ -145,7 +145,7 @@ export const hotelStore = {
 
       hotelStore.setHotels(newHotels);
       ratePeriods = []; // Clear old rates on new import
-      
+
       notifyListeners();
       return newHotels.length;
     } catch (error) {
@@ -157,40 +157,40 @@ export const hotelStore = {
       throw error; // Re-throw to be caught in UI
     }
   },
-  
+
   // Rate period management
   getRatePeriods: () => ratePeriods,
-  
+
   // Get rate for a specific hotel, room type, and date
   getRateForDate: (hotelId: string, roomType: string, mealPlan: string, date: Date): number | null => {
     const targetDate = startOfDay(date);
-    const period = ratePeriods.find(r => 
-      r.hotelId === hotelId && 
-      r.roomType === roomType && 
+    const period = ratePeriods.find(r =>
+      r.hotelId === hotelId &&
+      r.roomType === roomType &&
       // r.mealPlan === mealPlan && // Meal plan check can be complex, simplifying for now
-      targetDate >= startOfDay(r.startDate) && 
+      targetDate >= startOfDay(r.startDate) &&
       targetDate <= endOfDay(r.endDate)
     );
-    
+
     if (period) return period.rate;
-    
+
     // Fallback to base hotel rate
     const hotel = hotelsData.find(h => h.id === hotelId);
     if (!hotel) return null;
 
     const hotelRateKey = ROOM_TYPE_MAP[roomType];
     if (hotelRateKey) {
-        const rate = hotel[hotelRateKey];
-        if(typeof rate === 'number') return rate;
+      const rate = hotel[hotelRateKey];
+      if (typeof rate === 'number') return rate;
     }
-    
+
     return null;
   },
 
   // Sets a rate for a single day, splitting existing periods if necessary.
   setRateForDate: (hotelId: string, roomType: string, mealPlan: string, date: Date, rate: number) => {
     const targetDate = startOfDay(date);
-    
+
     const newPeriods: RatePeriod[] = [];
     let periodUpdated = false;
 
@@ -214,15 +214,15 @@ export const hotelStore = {
       if (isEqual(pStart, pEnd) && isEqual(pStart, targetDate)) {
         // Just update the rate of this period
         if (p.rate !== rate) {
-            p.rate = rate;
+          p.rate = rate;
         }
         newPeriods.push(p); // Add the modified or existing period
         periodUpdated = true;
         return;
       }
-      
+
       // --- Split the existing period --- 
-      
+
       // 1. Part before the target date
       if (isBefore(pStart, targetDate)) {
         newPeriods.push({ ...p, id: `rate-${Date.now()}-a`, endDate: subDays(targetDate, 1) });
@@ -238,20 +238,20 @@ export const hotelStore = {
 
     // Remove the old period that was split and add the new single-day period
     if (!periodUpdated) {
-        ratePeriods = newPeriods;
-        ratePeriods.push({
-            id: `rate-${Date.now()}-c`,
-            hotelId,
-            roomType,
-            mealPlan,
-            startDate: targetDate,
-            endDate: targetDate,
-            rate,
-        });
+      ratePeriods = newPeriods;
+      ratePeriods.push({
+        id: `rate-${Date.now()}-c`,
+        hotelId,
+        roomType,
+        mealPlan,
+        startDate: targetDate,
+        endDate: targetDate,
+        rate,
+      });
     } else {
-        ratePeriods = newPeriods;
+      ratePeriods = newPeriods;
     }
-    
+
     notifyListeners();
   },
 
@@ -259,7 +259,7 @@ export const hotelStore = {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
-  
+
   // All other store methods (addHotel, updateHotel, etc.) are omitted for brevity
   // but are assumed to be here and call notifyListeners()
   addHotel: (hotel: Hotel) => {
@@ -269,7 +269,7 @@ export const hotelStore = {
   calculateStayCost: (hotelId: string, roomType: string, mealPlan: string, arrivalDate: Date, departureDate: Date) => {
     const hotel = hotelsData.find(h => h.id === hotelId);
     if (!hotel) return { totalCost: 0, nightlyRate: 0 };
-    
+
     const nights = Math.ceil((departureDate.getTime() - arrivalDate.getTime()) / (1000 * 60 * 60 * 24));
     const roomTypeMap: Record<string, keyof Hotel> = {
       'single': 'singleRoom',
@@ -277,10 +277,10 @@ export const hotelStore = {
       'triple': 'tripleRoom',
       'quad': 'quadRoom'
     };
-    
+
     const rateKey = roomTypeMap[roomType];
     const baseRate = rateKey ? (hotel[rateKey] as number) : 0;
-    
+
     // Check for rate periods
     let totalCost = 0;
     for (let i = 0; i < nights; i++) {
@@ -289,7 +289,7 @@ export const hotelStore = {
       const rate = hotelStore.getRateForDate(hotelId, roomType.toUpperCase().substring(0, 3), mealPlan, currentDate);
       totalCost += rate || baseRate;
     }
-    
+
     return {
       totalCost,
       nightlyRate: nights > 0 ? totalCost / nights : baseRate
@@ -320,11 +320,11 @@ import * as React from "react";
 // React hook for using hotel store
 export function useHotelStore() {
   const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
-  
+
   React.useEffect(() => {
     const unsubscribe = hotelStore.subscribe(forceUpdate);
     return unsubscribe;
   }, []);
-  
+
   return hotelStore;
 }
