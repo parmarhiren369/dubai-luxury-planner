@@ -84,7 +84,7 @@ const ROOM_TYPES = {
 };
 
 export default function Hotels() {
-  const { hotels, ratePeriods, setHotels, addHotel, updateHotel, deleteHotel, importHotels, addRatePeriod, deleteRatePeriod, getRateForDate, setRateForDate } = useHotelStore();
+  const { hotels, getRateForDate, setRateForDate, ...hotelStore } = useHotelStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
@@ -101,6 +101,13 @@ export default function Hotels() {
   
   // Daily rates state
   const [dailyRates, setDailyRates] = useState<Record<string, Record<string, number>>>({});
+
+  // Automatically select the first hotel when the component mounts
+  useEffect(() => {
+    if (hotels && hotels.length > 0 && !selectedHotelForRate) {
+      setSelectedHotelForRate(hotels[0].id);
+    }
+  }, [hotels, selectedHotelForRate]);
 
   const filteredHotels = hotels.filter(
     (hotel) =>
@@ -167,13 +174,14 @@ export default function Hotels() {
   };
 
   // Copy rate to all visible dates
-  const handleCopyToAll = (roomType: string, rate: number) => {
+  const handleCopyToAll = (dateToCopy: string, roomTypeToCopy: string) => {
     const newDailyRates = { ...dailyRates };
+    const rateToCopy = newDailyRates[dateToCopy][roomTypeToCopy];
     Object.keys(newDailyRates).forEach(date => {
-      newDailyRates[date][roomType] = rate;
+        newDailyRates[date][roomTypeToCopy] = rateToCopy;
     });
     setDailyRates(newDailyRates);
-    toast.info(`Copied rate for ${roomType} to all dates.`);
+    toast.info(`Copied rate for ${roomTypeToCopy} to all dates.`);
   };
 
   const handleExport = () => {
@@ -188,7 +196,7 @@ export default function Hotels() {
 
     try {
       const data = await parseExcelFile<Omit<Hotel, "id">>(file);
-      const count = importHotels(data);
+      const count = hotelStore.importHotels(data);
       toast.success(`${count} hotels imported successfully!`);
     } catch (error) {
       toast.error("Failed to import file. Please check the format.");
@@ -206,14 +214,14 @@ export default function Hotels() {
 
   const handleSubmit = () => {
     if (editingHotel) {
-      updateHotel(editingHotel.id, formData);
+      hotelStore.updateHotel(editingHotel.id, formData);
       toast.success("Hotel updated successfully!");
     } else {
       const newHotel: Hotel = {
         ...formData,
         id: `hotel-${Date.now()}`,
       };
-      addHotel(newHotel);
+      hotelStore.addHotel(newHotel);
       toast.success("Hotel added successfully!");
     }
     setIsDialogOpen(false);
@@ -228,7 +236,7 @@ export default function Hotels() {
   };
 
   const handleDelete = (id: string) => {
-    deleteHotel(id);
+    hotelStore.deleteHotel(id);
     toast.success("Hotel deleted successfully!");
   };
 
@@ -257,7 +265,6 @@ export default function Hotels() {
                       <div className="text-xs font-normal text-muted-foreground">N/A</div>
                     </TableHead>
                   ))}
-                  <TableHead className="w-24 font-semibold border border-muted/20 text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -276,26 +283,25 @@ export default function Hotels() {
                           </div>
                         </div>
                       </TableCell>
-                      {Object.keys(ROOM_TYPES).map(rt => (
+                      {Object.keys(ROOM_TYPES).map((rt, i) => (
                         <TableCell key={rt} className="border border-muted/20">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center justify-center gap-1.5">
                             <Checkbox id={`${dateString}-${rt}`} className="self-center" />
                             <Input
                               type="number"
-                              className="w-24 text-center"
-                              value={dayRates[rt] || "0.00"}
+                              className="w-20 text-center text-sm h-8"
+                              value={dayRates[rt] !== undefined ? dayRates[rt] : "0.00"}
                               onChange={e => handleRateChange(dateString, rt, e.target.value)}
                               onFocus={e => e.target.select()}
                             />
+                             {i === 0 && (
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleCopyToAll(dateString, rt)}>
+                                    <Copy className="w-4 h-4 text-muted-foreground"/>
+                                </Button>
+                            )}
                           </div>
                         </TableCell>
                       ))}
-                      <TableCell className="border border-muted/20 text-center">
-                        <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => handleCopyToAll(Object.keys(ROOM_TYPES)[0], dayRates[Object.keys(ROOM_TYPES)[0]])}>
-                           <Copy className="w-3 h-3 mr-1"/>
-                           Copy to All
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -471,7 +477,7 @@ export default function Hotels() {
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                 <div className="md:col-span-1">
                   <Label>Hotel</Label>
-                  <Select value={selectedHotelForRate || undefined} onValueChange={(v) => setSelectedHotelForRate(v)}>
+                  <Select value={selectedHotelForRate || ""} onValueChange={(v) => setSelectedHotelForRate(v)}>
                     <SelectTrigger className="bg-background">
                       <SelectValue placeholder="Select Hotel" />
                     </SelectTrigger>
