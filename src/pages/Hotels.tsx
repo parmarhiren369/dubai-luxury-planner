@@ -288,10 +288,10 @@ export default function Hotels() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{hotel.location}</TableCell>
-                      <TableCell className="text-right font-medium">${hotel.singleRoom}</TableCell>
-                      <TableCell className="text-right font-medium">${hotel.doubleRoom}</TableCell>
-                      <TableCell className="text-right font-medium">${hotel.tripleRoom}</TableCell>
-                      <TableCell className="text-right font-medium">${hotel.quadRoom}</TableCell>
+                    <TableCell className="text-right font-medium">AED {hotel.singleRoom}</TableCell>
+                      <TableCell className="text-right font-medium">AED {hotel.doubleRoom}</TableCell>
+                      <TableCell className="text-right font-medium">AED {hotel.tripleRoom}</TableCell>
+                      <TableCell className="text-right font-medium">AED {hotel.quadRoom}</TableCell>
                       <TableCell>
                         <Badge variant="secondary">{hotel.mealPlan}</Badge>
                       </TableCell>
@@ -501,7 +501,7 @@ export default function Hotels() {
                           </TableCell>
                           <TableCell>{format(period.startDate, "dd/MM/yyyy")}</TableCell>
                           <TableCell>{format(period.endDate, "dd/MM/yyyy")}</TableCell>
-                          <TableCell className="text-right font-semibold text-primary">${period.rate}</TableCell>
+                          <TableCell className="text-right font-semibold text-primary">AED {period.rate}</TableCell>
                           <TableCell className="text-center">
                             <Button
                               variant="ghost"
@@ -549,13 +549,13 @@ export default function Hotels() {
                     {hotels.filter(h => h.status === "active").map((hotel) => (
                       <TableRow key={hotel.id} className="hover:bg-muted/30">
                         <TableCell className="font-medium">{hotel.name}</TableCell>
-                        <TableCell className="text-right">${hotel.singleRoom}</TableCell>
-                        <TableCell className="text-right">${hotel.doubleRoom}</TableCell>
-                        <TableCell className="text-right">${hotel.tripleRoom}</TableCell>
-                        <TableCell className="text-right">${hotel.quadRoom}</TableCell>
-                        <TableCell className="text-right">${hotel.extraBed}</TableCell>
-                        <TableCell className="text-right">${hotel.childWithBed}</TableCell>
-                        <TableCell className="text-right">${hotel.childWithoutBed}</TableCell>
+                        <TableCell className="text-right">AED {hotel.singleRoom}</TableCell>
+                        <TableCell className="text-right">AED {hotel.doubleRoom}</TableCell>
+                        <TableCell className="text-right">AED {hotel.tripleRoom}</TableCell>
+                        <TableCell className="text-right">AED {hotel.quadRoom}</TableCell>
+                        <TableCell className="text-right">AED {hotel.extraBed}</TableCell>
+                        <TableCell className="text-right">AED {hotel.childWithBed}</TableCell>
+                        <TableCell className="text-right">AED {hotel.childWithoutBed}</TableCell>
                         <TableCell>
                           <Badge variant="secondary">{hotel.mealPlan}</Badge>
                         </TableCell>
