@@ -9,9 +9,12 @@ export interface Hotel {
   doubleRoom: number;
   tripleRoom: number;
   quadRoom: number;
+  sixRoom: number;
   extraBed: number;
   childWithBed: number;
   childWithoutBed: number;
+  childWithoutBed3to5: number;
+  childWithoutBed5to11: number;
   infant: number;
   mealPlan: string;
   status: "active" | "inactive";
@@ -73,20 +76,20 @@ export function exportToExcel<T extends Record<string, any>>(
   const worksheet = XLSX.utils.json_to_sheet(data);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  
+
   // Auto-size columns
   const colWidths = Object.keys(data[0] || {}).map((key) => ({
     wch: Math.max(key.length, ...data.map((row) => String(row[key]).length)) + 2,
   }));
   worksheet["!cols"] = colWidths;
-  
+
   XLSX.writeFile(workbook, `${filename}.xlsx`);
 }
 
 export function parseExcelFile<T>(file: File): Promise<T[]> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    
+
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
@@ -99,7 +102,7 @@ export function parseExcelFile<T>(file: File): Promise<T[]> {
         reject(error);
       }
     };
-    
+
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsArrayBuffer(file);
   });
