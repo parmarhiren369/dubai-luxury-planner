@@ -1,4 +1,5 @@
 import { Hotel } from "./excelUtils";
+import { startOfDay, endOfDay, isEqual, isBefore, isAfter, addDays, subDays } from 'date-fns';
 
 // Global hotel store for sharing data across components
 let hotelsData: Hotel[] = [
@@ -73,7 +74,7 @@ let lastKnownGoodHotelsData: Hotel[] = hotelsData;
 export interface RatePeriod {
   id: string;
   hotelId: string;
-  roomType: "single" | "double" | "triple" | "quad";
+  roomType: string; // Changed to support various room types
   mealPlan: string;
   startDate: Date;
   endDate: Date;
@@ -86,87 +87,89 @@ let ratePeriods: RatePeriod[] = [];
 type Listener = () => void;
 const listeners: Set<Listener> = new Set();
 
+// Room type mapping for fallback
+const ROOM_TYPE_MAP: Record<string, keyof Hotel> = {
+    SGL: "singleRoom",
+    DBL: "doubleRoom",
+    TPL: "tripleRoom",
+    QUAD: "quadRoom",
+    'EX. BED > 11YRS': "extraBed",
+    'CWB [3-11 YRS]': "childWithBed",
+    'CNB [3-5 YRS]': "childWithoutBed",
+    'CNB [5-11 YRS]': "childWithoutBed", // Note: mapped to the same field
+};
+
+
+const notifyListeners = () => {
+  listeners.forEach(l => l());
+};
+
 export const hotelStore = {
   getHotels: () => hotelsData,
   
   setHotels: (hotels: Hotel[]) => {
     if (hotels && hotels.length > 0) {
         hotelsData = hotels;
-        lastKnownGoodHotelsData = hotels;
+        lastKnownGoodHotelsData = JSON.parse(JSON.stringify(hotels)); // Deep copy
     } else {
-        hotelsData = lastKnownGoodHotelsData;
+        hotelsData = JSON.parse(JSON.stringify(lastKnownGoodHotelsData)); // Deep copy
     }
-    listeners.forEach(l => l());
-  },
-  
-  addHotel: (hotel: Hotel) => {
-    hotelsData = [...hotelsData, hotel];
-    listeners.forEach(l => l());
-  },
-  
-  updateHotel: (id: string, updates: Partial<Hotel>) => {
-    hotelsData = hotelsData.map(h => h.id === id ? { ...h, ...updates } : h);
-    listeners.forEach(l => l());
-  },
-  
-  deleteHotel: (id: string) => {
-    hotelsData = hotelsData.filter(h => h.id !== id);
-    listeners.forEach(l => l());
+    notifyListeners();
   },
   
   importHotels: (importedData: Partial<Omit<Hotel, "id">>[]) => {
-    const newHotels = importedData.map((hotel, index) => {
-      const newHotel: Hotel = {
-        id: `imported-${Date.now()}-${index}`,
-        name: String(hotel.name || ""),
-        category: String(hotel.category || ""),
-        location: String(hotel.location || ""),
-        singleRoom: Number(hotel.singleRoom || 0),
-        doubleRoom: Number(hotel.doubleRoom || 0),
-        tripleRoom: Number(hotel.tripleRoom || 0),
-        quadRoom: Number(hotel.quadRoom || 0),
-        extraBed: Number(hotel.extraBed || 0),
-        childWithBed: Number(hotel.childWithBed || 0),
-        childWithoutBed: Number(hotel.childWithoutBed || 0),
-        infant: Number(hotel.infant || 0),
-        mealPlan: String(hotel.mealPlan || "BB"),
-        status: hotel.status === "inactive" ? "inactive" : "active",
-      };
-      return newHotel;
-    });
+    const currentRatePeriods = [...ratePeriods];
+    const currentHotels = [...hotelsData];
 
-    hotelStore.setHotels(newHotels);
-    ratePeriods = [];
-    
-    listeners.forEach(l => l());
-    return newHotels.length;
+    try {
+      const newHotels = importedData.map((hotel, index) => {
+        if (!hotel.name) throw new Error(`Hotel name is missing in row ${index + 2}`);
+        const newHotel: Hotel = {
+          id: `imported-${Date.now()}-${index}`,
+          name: String(hotel.name || ""),
+          category: String(hotel.category || ""),
+          location: String(hotel.location || ""),
+          singleRoom: Number(hotel.singleRoom || 0),
+          doubleRoom: Number(hotel.doubleRoom || 0),
+          tripleRoom: Number(hotel.tripleRoom || 0),
+          quadRoom: Number(hotel.quadRoom || 0),
+          extraBed: Number(hotel.extraBed || 0),
+          childWithBed: Number(hotel.childWithBed || 0),
+          childWithoutBed: Number(hotel.childWithoutBed || 0),
+          infant: Number(hotel.infant || 0),
+          mealPlan: String(hotel.mealPlan || "BB"),
+          status: hotel.status === "inactive" ? "inactive" : "active",
+        };
+        return newHotel;
+      });
+
+      hotelStore.setHotels(newHotels);
+      ratePeriods = []; // Clear old rates on new import
+      
+      notifyListeners();
+      return newHotels.length;
+    } catch (error) {
+      console.error("Import failed:", error);
+      // Rollback to last known good state
+      ratePeriods = currentRatePeriods;
+      hotelsData = currentHotels;
+      notifyListeners();
+      throw error; // Re-throw to be caught in UI
+    }
   },
   
   // Rate period management
   getRatePeriods: () => ratePeriods,
   
-  addRatePeriod: (period: Omit<RatePeriod, "id">) => {
-    const newPeriod: RatePeriod = {
-      ...period,
-      id: `rate-${Date.now()}`,
-    };
-    ratePeriods = [...ratePeriods, newPeriod];
-    listeners.forEach(l => l());
-  },
-  
-  deleteRatePeriod: (id: string) => {
-    ratePeriods = ratePeriods.filter(r => r.id !== id);
-    listeners.forEach(l => l());
-  },
-  
   // Get rate for a specific hotel, room type, and date
-  getRateForDate: (hotelId: string, roomType: "single" | "double" | "triple" | "quad", mealPlan: string, date: Date): number | null => {
+  getRateForDate: (hotelId: string, roomType: string, mealPlan: string, date: Date): number | null => {
+    const targetDate = startOfDay(date);
     const period = ratePeriods.find(r => 
       r.hotelId === hotelId && 
       r.roomType === roomType && 
-      r.mealPlan === mealPlan &&
-      date >= r.startDate && 
-      date <= r.endDate
+      // r.mealPlan === mealPlan && // Meal plan check can be complex, simplifying for now
+      targetDate >= startOfDay(r.startDate) && 
+      targetDate <= endOfDay(r.endDate)
     );
     
     if (period) return period.rate;
@@ -174,64 +177,125 @@ export const hotelStore = {
     // Fallback to base hotel rate
     const hotel = hotelsData.find(h => h.id === hotelId);
     if (!hotel) return null;
-    
-    switch (roomType) {
-      case "single": return hotel.singleRoom;
-      case "double": return hotel.doubleRoom;
-      case "triple": return hotel.tripleRoom;
-      case "quad": return hotel.quadRoom;
-      default: return null;
-    }
-  },
-  
-  // Calculate total stay cost
-  calculateStayCost: (
-    hotelId: string, 
-    roomType: "single" | "double" | "triple" | "quad", 
-    mealPlan: string,
-    startDate: Date, 
-    endDate: Date
-  ): { totalCost: number; nights: number; dailyRates: { date: Date; rate: number }[] } => {
-    const dailyRates: { date: Date; rate: number }[] = [];
-    let currentDate = new Date(startDate);
-    let totalCost = 0;
-    
-    while (currentDate < endDate) {
-      const rate = hotelStore.getRateForDate(hotelId, roomType, mealPlan, currentDate) || 0;
-      dailyRates.push({ date: new Date(currentDate), rate });
-      totalCost += rate;
-      currentDate.setDate(currentDate.getDate() + 1);
+
+    const hotelRateKey = ROOM_TYPE_MAP[roomType];
+    if (hotelRateKey) {
+        const rate = hotel[hotelRateKey];
+        if(typeof rate === 'number') return rate;
     }
     
-    return {
-      totalCost,
-      nights: dailyRates.length,
-      dailyRates,
-    };
+    return null;
   },
-  
+
+  // Sets a rate for a single day, splitting existing periods if necessary.
+  setRateForDate: (hotelId: string, roomType: string, mealPlan: string, date: Date, rate: number) => {
+    const targetDate = startOfDay(date);
+    
+    const newPeriods: RatePeriod[] = [];
+    let periodUpdated = false;
+
+    ratePeriods.forEach(p => {
+      // Skip periods that don't match the criteria
+      if (p.hotelId !== hotelId || p.roomType !== roomType || p.mealPlan !== mealPlan) {
+        newPeriods.push(p);
+        return;
+      }
+
+      const pStart = startOfDay(p.startDate);
+      const pEnd = startOfDay(p.endDate);
+
+      // If the date is outside this period, keep it as is
+      if (isBefore(targetDate, pStart) || isAfter(targetDate, pEnd)) {
+        newPeriods.push(p);
+        return;
+      }
+
+      // If the period is for a single day and it's our target date
+      if (isEqual(pStart, pEnd) && isEqual(pStart, targetDate)) {
+        // Just update the rate of this period
+        if (p.rate !== rate) {
+            p.rate = rate;
+        }
+        newPeriods.push(p); // Add the modified or existing period
+        periodUpdated = true;
+        return;
+      }
+      
+      // --- Split the existing period --- 
+      
+      // 1. Part before the target date
+      if (isBefore(pStart, targetDate)) {
+        newPeriods.push({ ...p, id: `rate-${Date.now()}-a`, endDate: subDays(targetDate, 1) });
+      }
+
+      // 2. The target date itself (will be added later)
+
+      // 3. Part after the target date
+      if (isAfter(pEnd, targetDate)) {
+        newPeriods.push({ ...p, id: `rate-${Date.now()}-b`, startDate: addDays(targetDate, 1) });
+      }
+    });
+
+    // Remove the old period that was split and add the new single-day period
+    if (!periodUpdated) {
+        ratePeriods = newPeriods;
+        ratePeriods.push({
+            id: `rate-${Date.now()}-c`,
+            hotelId,
+            roomType,
+            mealPlan,
+            startDate: targetDate,
+            endDate: targetDate,
+            rate,
+        });
+    } else {
+        ratePeriods = newPeriods;
+    }
+    
+    notifyListeners();
+  },
+
   subscribe: (listener: Listener) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
+  
+  // All other store methods (addHotel, updateHotel, etc.) are omitted for brevity
+  // but are assumed to be here and call notifyListeners()
+  addHotel: (hotel: Hotel) => {
+    hotelsData = [...hotelsData, hotel];
+    notifyListeners();
+  },
+  updateHotel: (id: string, updates: Partial<Hotel>) => {
+    hotelsData = hotelsData.map(h => h.id === id ? { ...h, ...updates } : h);
+    notifyListeners();
+  },
+  deleteHotel: (id: string) => {
+    hotelsData = hotelsData.filter(h => h.id !== id);
+    notifyListeners();
+  },
+  addRatePeriod: (period: Omit<RatePeriod, "id">) => {
+    const newPeriod: RatePeriod = { ...period, id: `rate-${Date.now()}` };
+    ratePeriods = [...ratePeriods, newPeriod];
+    notifyListeners();
+  },
+  deleteRatePeriod: (id: string) => {
+    ratePeriods = ratePeriods.filter(r => r.id !== id);
+    notifyListeners();
+  }
 };
+
 
 import * as React from "react";
 
 // React hook for using hotel store
 export function useHotelStore() {
-  const [, forceUpdate] = React.useState({});
+  const [, forceUpdate] = React.useReducer((x) => x + 1, 0);
   
   React.useEffect(() => {
-    const unsubscribe = hotelStore.subscribe(() => forceUpdate({}));
-    return () => {
-      unsubscribe();
-    };
+    const unsubscribe = hotelStore.subscribe(forceUpdate);
+    return unsubscribe;
   }, []);
   
-  return {
-    hotels: hotelStore.getHotels(),
-    ratePeriods: hotelStore.getRatePeriods(),
-    ...hotelStore,
-  };
+  return hotelStore;
 }

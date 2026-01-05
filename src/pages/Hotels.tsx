@@ -1,7 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -44,13 +45,13 @@ import {
   Building2,
   FileSpreadsheet,
   CalendarIcon,
-  DollarSign,
   Settings2,
+  Copy,
 } from "lucide-react";
 import { Hotel, exportToExcel, parseExcelFile, downloadTemplate } from "@/lib/excelUtils";
-import { useHotelStore, RatePeriod } from "@/lib/hotelStore";
+import { useHotelStore } from "@/lib/hotelStore";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { format, addDays, eachDayOfInterval, startOfDay } from "date-fns";
 import { cn } from "@/lib/utils";
 
 const hotelTemplate: Omit<Hotel, "id"> = {
@@ -69,22 +70,37 @@ const hotelTemplate: Omit<Hotel, "id"> = {
   status: "active",
 };
 
+// Room type definitions
+const ROOM_TYPES = {
+    SGL: "singleRoom",
+    DBL: "doubleRoom",
+    TPL: "tripleRoom",
+    QUAD: "quadRoom",
+    SIX: "sixRoom",
+    EX_BED_11: "extraBed",
+    CWB_3_11: "childWithBed",
+    CNB_3_5: "childWithoutBed",
+    CNB_5_11: "childWithoutBed",
+};
+
 export default function Hotels() {
-  const { hotels, ratePeriods, setHotels, addHotel, updateHotel, deleteHotel, importHotels, addRatePeriod, deleteRatePeriod } = useHotelStore();
+  const { hotels, ratePeriods, setHotels, addHotel, updateHotel, deleteHotel, importHotels, addRatePeriod, deleteRatePeriod, getRateForDate, setRateForDate } = useHotelStore();
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
   const [formData, setFormData] = useState<Omit<Hotel, "id">>(hotelTemplate);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState("management");
+  const [activeTab, setActiveTab] = useState("rates");
 
   // Rate Management State
-  const [selectedHotelForRate, setSelectedHotelForRate] = useState("");
-  const [selectedRoomType, setSelectedRoomType] = useState<"single" | "double" | "triple" | "quad">("double");
-  const [selectedMealPlan, setSelectedMealPlan] = useState("BB");
-  const [rateStartDate, setRateStartDate] = useState<Date>();
-  const [rateEndDate, setRateEndDate] = useState<Date>();
-  const [newRate, setNewRate] = useState<number>(0);
+  const [selectedHotelForRate, setSelectedHotelForRate] = useState<string | null>(null);
+  const [selectedRoomTypeForRate, setSelectedRoomTypeForRate] = useState<string>("2 BR");
+  const [selectedMealPlan, setSelectedMealPlan] = useState("Room Only");
+  const [rateStartDate, setRateStartDate] = useState<Date>(new Date("2026-01-05"));
+  const [rateEndDate, setRateEndDate] = useState<Date>(new Date("2026-01-30"));
+  
+  // Daily rates state
+  const [dailyRates, setDailyRates] = useState<Record<string, Record<string, number>>>({});
 
   const filteredHotels = hotels.filter(
     (hotel) =>
@@ -92,6 +108,73 @@ export default function Hotels() {
       hotel.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
       hotel.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // When form values change, update daily rates
+  useEffect(() => {
+    if (selectedHotelForRate && rateStartDate && rateEndDate) {
+      const newDailyRates: Record<string, Record<string, number>> = {};
+      const interval = eachDayOfInterval({ start: rateStartDate, end: rateEndDate });
+
+      interval.forEach(date => {
+        const dateString = format(date, "yyyy-MM-dd");
+        newDailyRates[dateString] = {};
+        Object.keys(ROOM_TYPES).forEach(rt => {
+          const rate = getRateForDate(
+            selectedHotelForRate,
+            rt as keyof typeof ROOM_TYPES,
+            selectedMealPlan,
+            date
+          );
+          newDailyRates[dateString][rt] = rate || 0;
+        });
+      });
+      setDailyRates(newDailyRates);
+    }
+  }, [selectedHotelForRate, selectedMealPlan, rateStartDate, rateEndDate, getRateForDate]);
+
+  // Handle daily rate change
+  const handleRateChange = (date: string, roomType: string, value: string) => {
+    const rate = parseFloat(value) || 0;
+    setDailyRates(prev => ({
+      ...prev,
+      [date]: {
+        ...prev[date],
+        [roomType]: rate,
+      },
+    }));
+  };
+  
+  // Save all rates for the period
+  const handleSaveRates = () => {
+    if (!selectedHotelForRate || !rateStartDate || !rateEndDate) {
+      toast.error("Please select a hotel and date range.");
+      return;
+    }
+
+    Object.entries(dailyRates).forEach(([dateString, roomRates]) => {
+      Object.entries(roomRates).forEach(([roomType, rate]) => {
+        setRateForDate(
+          selectedHotelForRate,
+          roomType as keyof typeof ROOM_TYPES,
+          selectedMealPlan,
+          startOfDay(new Date(dateString)),
+          rate
+        );
+      });
+    });
+
+    toast.success("Rates saved successfully!");
+  };
+
+  // Copy rate to all visible dates
+  const handleCopyToAll = (roomType: string, rate: number) => {
+    const newDailyRates = { ...dailyRates };
+    Object.keys(newDailyRates).forEach(date => {
+      newDailyRates[date][roomType] = rate;
+    });
+    setDailyRates(newDailyRates);
+    toast.info(`Copied rate for ${roomType} to all dates.`);
+  };
 
   const handleExport = () => {
     const exportData = hotels.map(({ id, ...rest }) => rest);
@@ -155,37 +238,74 @@ export default function Hotels() {
     setIsDialogOpen(true);
   };
 
-  const handleAddRatePeriod = () => {
-    if (!selectedHotelForRate || !rateStartDate || !rateEndDate || newRate <= 0) {
-      toast.error("Please fill in all rate period fields");
-      return;
-    }
+  const renderRateCalendar = () => {
+    if (!rateStartDate || !rateEndDate) return null;
+    
+    const days = eachDayOfInterval({ start: rateStartDate, end: rateEndDate });
 
-    addRatePeriod({
-      hotelId: selectedHotelForRate,
-      roomType: selectedRoomType,
-      mealPlan: selectedMealPlan,
-      startDate: rateStartDate,
-      endDate: rateEndDate,
-      rate: newRate,
-    });
-
-    toast.success("Rate period added successfully!");
-    setNewRate(0);
-    setRateStartDate(undefined);
-    setRateEndDate(undefined);
+    return (
+      <Card className="shadow-wtb-sm">
+        <CardContent className="pt-6">
+          <div className="overflow-x-auto">
+            <Table className="min-w-full border-collapse border border-muted/20">
+              <TableHeader className="bg-muted/50">
+                <TableRow>
+                  <TableHead className="w-32 font-semibold border border-muted/20">Date</TableHead>
+                  {Object.keys(ROOM_TYPES).map(rt => (
+                    <TableHead key={rt} className="w-32 font-semibold border border-muted/20 text-center">
+                      {rt}
+                      <div className="text-xs font-normal text-muted-foreground">N/A</div>
+                    </TableHead>
+                  ))}
+                  <TableHead className="w-24 font-semibold border border-muted/20 text-center">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {days.map(date => {
+                  const dateString = format(date, "yyyy-MM-dd");
+                  const dayRates = dailyRates[dateString] || {};
+                  
+                  return (
+                    <TableRow key={dateString}>
+                      <TableCell className="font-medium border border-muted/20">
+                        <div className="flex items-center gap-2">
+                          <CalendarIcon className="w-4 h-4 text-muted-foreground" />
+                          <div>
+                            <div>{format(date, "E")}</div>
+                            <div className="text-sm">{format(date, "MMM d")}</div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      {Object.keys(ROOM_TYPES).map(rt => (
+                        <TableCell key={rt} className="border border-muted/20">
+                          <div className="flex items-center gap-1">
+                            <Checkbox id={`${dateString}-${rt}`} className="self-center" />
+                            <Input
+                              type="number"
+                              className="w-24 text-center"
+                              value={dayRates[rt] || "0.00"}
+                              onChange={e => handleRateChange(dateString, rt, e.target.value)}
+                              onFocus={e => e.target.select()}
+                            />
+                          </div>
+                        </TableCell>
+                      ))}
+                      <TableCell className="border border-muted/20 text-center">
+                        <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => handleCopyToAll(Object.keys(ROOM_TYPES)[0], dayRates[Object.keys(ROOM_TYPES)[0]])}>
+                           <Copy className="w-3 h-3 mr-1"/>
+                           Copy to All
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    );
   };
-
-  const getHotelName = (hotelId: string) => {
-    return hotels.find(h => h.id === hotelId)?.name || "Unknown";
-  };
-
-  const filteredRatePeriods = ratePeriods.filter(r => {
-    if (selectedHotelForRate && r.hotelId !== selectedHotelForRate) return false;
-    if (selectedRoomType && r.roomType !== selectedRoomType) return false;
-    if (selectedMealPlan && r.mealPlan !== selectedMealPlan) return false;
-    return true;
-  });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -340,7 +460,6 @@ export default function Hotels() {
           <Card className="shadow-wtb-sm">
             <CardHeader>
               <CardTitle className="text-lg font-serif flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-primary" />
                 Rate Management
               </CardTitle>
               <p className="text-sm text-muted-foreground">
@@ -349,10 +468,10 @@ export default function Hotels() {
             </CardHeader>
             <CardContent className="space-y-6">
               {/* Filters */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                <div className="md:col-span-1">
                   <Label>Hotel</Label>
-                  <Select value={selectedHotelForRate} onValueChange={setSelectedHotelForRate}>
+                  <Select value={selectedHotelForRate || undefined} onValueChange={(v) => setSelectedHotelForRate(v)}>
                     <SelectTrigger className="bg-background">
                       <SelectValue placeholder="Select Hotel" />
                     </SelectTrigger>
@@ -366,33 +485,32 @@ export default function Hotels() {
                   </Select>
                 </div>
 
-                <div>
+                <div className="md:col-span-1">
                   <Label>Room Type</Label>
-                  <Select value={selectedRoomType} onValueChange={(v) => setSelectedRoomType(v as any)}>
+                  <Select value={selectedRoomTypeForRate} onValueChange={setSelectedRoomTypeForRate}>
                     <SelectTrigger className="bg-background">
                       <SelectValue placeholder="Select Room Type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="single">Single Room</SelectItem>
-                      <SelectItem value="double">Double Room</SelectItem>
-                      <SelectItem value="triple">Triple Room</SelectItem>
-                      <SelectItem value="quad">Quad Room</SelectItem>
+                      <SelectItem value="1 BR">1 BR</SelectItem>
+                      <SelectItem value="2 BR">2 BR</SelectItem>
+                      <SelectItem value="3 BR">3 BR</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div>
+                <div className="md:col-span-1">
                   <Label>Meal Plan</Label>
                   <Select value={selectedMealPlan} onValueChange={setSelectedMealPlan}>
                     <SelectTrigger className="bg-background">
                       <SelectValue placeholder="Select Meal Plan" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="RO">Room Only</SelectItem>
-                      <SelectItem value="BB">Bed & Breakfast</SelectItem>
-                      <SelectItem value="HB">Half Board</SelectItem>
-                      <SelectItem value="FB">Full Board</SelectItem>
-                      <SelectItem value="AI">All Inclusive</SelectItem>
+                      <SelectItem value="Room Only">Room Only</SelectItem>
+                      <SelectItem value="Bed & Breakfast">Bed & Breakfast</SelectItem>
+                      <SelectItem value="Half Board">Half Board</SelectItem>
+                      <SelectItem value="Full Board">Full Board</SelectItem>
+                      <SelectItem value="All Inclusive">All Inclusive</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -416,9 +534,8 @@ export default function Hotels() {
                       <Calendar
                         mode="single"
                         selected={rateStartDate}
-                        onSelect={setRateStartDate}
+                        onSelect={(d) => setRateStartDate(d!)}
                         initialFocus
-                        className="pointer-events-auto"
                       />
                     </PopoverContent>
                   </Popover>
@@ -443,129 +560,24 @@ export default function Hotels() {
                       <Calendar
                         mode="single"
                         selected={rateEndDate}
-                        onSelect={setRateEndDate}
+                        onSelect={(d) => setRateEndDate(d!)}
                         initialFocus
-                        className="pointer-events-auto"
                       />
                     </PopoverContent>
                   </Popover>
                 </div>
-              </div>
-
-              {/* Add Rate Section */}
-              <div className="flex items-end gap-4 p-4 bg-muted/50 rounded-lg">
-                <div className="flex-1">
-                  <Label>Daily Rate ($)</Label>
-                  <Input
-                    type="number"
-                    placeholder="Enter rate"
-                    value={newRate || ""}
-                    onChange={(e) => setNewRate(Number(e.target.value))}
-                    className="bg-background"
-                  />
+                
+                <div className="md:col-span-5 flex justify-end">
+                    <Button onClick={handleSaveRates} className="mt-4">
+                        Save Rates
+                    </Button>
                 </div>
-                <Button onClick={handleAddRatePeriod} disabled={!selectedHotelForRate || !rateStartDate || !rateEndDate}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Rate Period
-                </Button>
-              </div>
-
-              {/* Rate Periods Table */}
-              <div className="rounded-lg border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold">Hotel</TableHead>
-                      <TableHead className="font-semibold">Room Type</TableHead>
-                      <TableHead className="font-semibold">Meal Plan</TableHead>
-                      <TableHead className="font-semibold">Start Date</TableHead>
-                      <TableHead className="font-semibold">End Date</TableHead>
-                      <TableHead className="font-semibold text-right">Rate</TableHead>
-                      <TableHead className="font-semibold text-center">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRatePeriods.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          No rate periods configured. Add a rate period above.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredRatePeriods.map((period) => (
-                        <TableRow key={period.id} className="hover:bg-muted/30">
-                          <TableCell className="font-medium">{getHotelName(period.hotelId)}</TableCell>
-                          <TableCell className="capitalize">{period.roomType}</TableCell>
-                          <TableCell>
-                            <Badge variant="secondary">{period.mealPlan}</Badge>
-                          </TableCell>
-                          <TableCell>{format(period.startDate, "dd/MM/yyyy")}</TableCell>
-                          <TableCell>{format(period.endDate, "dd/MM/yyyy")}</TableCell>
-                          <TableCell className="text-right font-semibold text-primary">AED {period.rate}</TableCell>
-                          <TableCell className="text-center">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => deleteRatePeriod(period.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
               </div>
             </CardContent>
           </Card>
+          
+          {selectedHotelForRate && rateStartDate && rateEndDate && renderRateCalendar()}
 
-          {/* Base Rates Reference */}
-          <Card className="shadow-wtb-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-serif">Base Rates (from Excel Import)</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                These are the default rates from hotel data. Rate periods override these for specific date ranges.
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold">Hotel</TableHead>
-                      <TableHead className="font-semibold text-right">Single</TableHead>
-                      <TableHead className="font-semibold text-right">Double</TableHead>
-                      <TableHead className="font-semibold text-right">Triple</TableHead>
-                      <TableHead className="font-semibold text-right">Quad</TableHead>
-                      <TableHead className="font-semibold text-right">Extra Bed</TableHead>
-                      <TableHead className="font-semibold text-right">Child w/ Bed</TableHead>
-                      <TableHead className="font-semibold text-right">Child w/o Bed</TableHead>
-                      <TableHead className="font-semibold">Meal Plan</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {hotels.filter(h => h.status === "active").map((hotel) => (
-                      <TableRow key={hotel.id} className="hover:bg-muted/30">
-                        <TableCell className="font-medium">{hotel.name}</TableCell>
-                        <TableCell className="text-right">AED {hotel.singleRoom}</TableCell>
-                        <TableCell className="text-right">AED {hotel.doubleRoom}</TableCell>
-                        <TableCell className="text-right">AED {hotel.tripleRoom}</TableCell>
-                        <TableCell className="text-right">AED {hotel.quadRoom}</TableCell>
-                        <TableCell className="text-right">AED {hotel.extraBed}</TableCell>
-                        <TableCell className="text-right">AED {hotel.childWithBed}</TableCell>
-                        <TableCell className="text-right">AED {hotel.childWithoutBed}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{hotel.mealPlan}</Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
 
