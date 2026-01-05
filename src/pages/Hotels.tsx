@@ -56,19 +56,19 @@ import { format, eachDayOfInterval } from "date-fns";
 import { cn } from "@/lib/utils";
 
 const hotelTemplate: Omit<Hotel, "id"> = {
-  name: "",
-  category: "",
-  location: "",
-  singleRoom: 0,
-  doubleRoom: 0,
-  tripleRoom: 0,
-  quadRoom: 0,
-  sixRoom: 0,
-  extraBed: 0,
-  childWithBed: 0,
-  childWithoutBed: 0,
-  childWithoutBed3to5: 0,
-  childWithoutBed5to11: 0,
+  name: "Example Hotel Name",
+  category: "5 Star",
+  location: "Dubai",
+  singleRoom: 1000,
+  doubleRoom: 1500,
+  tripleRoom: 2000,
+  quadRoom: 2500,
+  sixRoom: 3000,
+  extraBed: 200,
+  childWithBed: 150,
+  childWithoutBed: 100,
+  childWithoutBed3to5: 80,
+  childWithoutBed5to11: 100,
   infant: 0,
   mealPlan: "BB",
   status: "active",
@@ -211,27 +211,102 @@ export default function Hotels() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    try {
-      const data = await parseExcelFile<any>(file);
-      const transformedData = transformHotelImportData(data);
+    // Validate file type
+    const validExtensions = ['.xlsx', '.xls'];
+    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+    if (!validExtensions.includes(fileExtension)) {
+      toast.error("Please upload a valid Excel file (.xlsx or .xls)");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
 
-      if (transformedData.length === 0) {
-        toast.warning("No valid hotel data found in file.");
+    const loadingToast = toast.loading("Reading Excel file...");
+
+    try {
+      // Parse Excel file
+      const data = await parseExcelFile<any>(file);
+      
+      if (!data || data.length === 0) {
+        toast.dismiss(loadingToast);
+        toast.error("Excel file is empty or could not be read.");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
         return;
       }
 
-      const response: any = await hotelsApi.import(transformedData);
-      toast.success(`${response.count} hotels imported successfully!`);
+      toast.dismiss(loadingToast);
+      toast.loading("Processing hotel data...");
 
-      // Refresh list
+      // Transform data
+      const transformedData = transformHotelImportData(data);
+
+      if (transformedData.length === 0) {
+        toast.dismiss(loadingToast);
+        toast.error("No valid hotel data found. Please check that your Excel file has a 'Name' or 'Hotel Name' column.");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
+
+      // Validate required fields
+      const invalidHotels = transformedData.filter((hotel, index) => {
+        if (!hotel.name || hotel.name.trim() === '') {
+          console.warn(`Row ${index + 2}: Missing hotel name`);
+          return true;
+        }
+        return false;
+      });
+
+      if (invalidHotels.length > 0) {
+        toast.dismiss(loadingToast);
+        toast.warning(`${invalidHotels.length} row(s) skipped due to missing hotel names.`);
+      }
+
+      const validHotels = transformedData.filter(hotel => hotel.name && hotel.name.trim() !== '');
+
+      if (validHotels.length === 0) {
+        toast.dismiss(loadingToast);
+        toast.error("No valid hotels to import. Please check your data.");
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        return;
+      }
+
+      toast.dismiss(loadingToast);
+      toast.loading(`Importing ${validHotels.length} hotel(s)...`);
+
+      // Import to backend
+      const response: any = await hotelsApi.import(validHotels);
+      
+      toast.dismiss(loadingToast);
+      toast.success(`✅ ${response.count || validHotels.length} hotel(s) imported successfully!`);
+
+      // Refresh hotel list
       const updatedHotels = await hotelsApi.getAll();
       store.setHotels(updatedHotels);
 
     } catch (error: any) {
+      toast.dismiss(loadingToast);
       console.error("Import error:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to import file. Please check the format.");
+      
+      let errorMessage = "Failed to import file. ";
+      if (error instanceof Error) {
+        errorMessage += error.message;
+      } else if (error.message) {
+        errorMessage += error.message;
+      } else {
+        errorMessage += "Please check the file format and try again.";
+      }
+      
+      toast.error(errorMessage);
     }
-
+    
+    // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }

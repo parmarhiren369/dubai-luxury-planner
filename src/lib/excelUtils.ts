@@ -132,34 +132,82 @@ export function downloadTemplate<T extends Record<string, any>>(
 export function transformHotelImportData(data: any[]): Omit<Hotel, "id">[] {
   return data
     .filter(row => Object.keys(row).length > 0)
-    .map((row: any) => {
-      // Helper to get value case-insensitively
-      const getVal = (key: string) => {
-        const foundKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase());
-        return foundKey ? row[foundKey] : undefined;
+    .map((row: any, index: number) => {
+      // Helper to get value case-insensitively with multiple possible keys
+      const getVal = (possibleKeys: string[]): any => {
+        for (const key of possibleKeys) {
+          const foundKey = Object.keys(row).find(k => {
+            const normalizedK = k.trim().toLowerCase().replace(/\s+/g, '');
+            const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, '');
+            return normalizedK === normalizedKey || normalizedK.includes(normalizedKey) || normalizedKey.includes(normalizedK);
+          });
+          if (foundKey && row[foundKey] !== undefined && row[foundKey] !== null && row[foundKey] !== '') {
+            return row[foundKey];
+          }
+        }
+        return undefined;
       };
 
-      const name = getVal('name');
-      if (!name) return null; // Skip invalid rows
+      // Try multiple possible column name variations
+      const name = getVal(['name', 'hotel name', 'hotel', 'hotelname', 'hotel_name']);
+      if (!name) {
+        console.warn(`Row ${index + 2}: Skipping - no hotel name found`);
+        return null; // Skip invalid rows
+      }
 
-      return {
-        name: String(name),
-        category: String(getVal('category') || ""),
-        location: String(getVal('location') || ""),
-        singleRoom: Number(getVal('singleRoom') || 0),
-        doubleRoom: Number(getVal('doubleRoom') || 0),
-        tripleRoom: Number(getVal('tripleRoom') || 0),
-        quadRoom: Number(getVal('quadRoom') || 0),
-        sixRoom: Number(getVal('sixRoom') || 0),
-        extraBed: Number(getVal('extraBed') || 0),
-        childWithBed: Number(getVal('childWithBed') || 0),
-        childWithoutBed: Number(getVal('childWithoutBed') || 0),
-        childWithoutBed3to5: Number(getVal('childWithoutBed3to5') || 0),
-        childWithoutBed5to11: Number(getVal('childWithoutBed5to11') || 0),
-        infant: Number(getVal('infant') || 0),
-        mealPlan: String(getVal('mealPlan') || "BB"),
-        status: getVal('status') === "inactive" ? "inactive" : "active",
+      // Helper to parse number safely
+      const parseNumber = (val: any, defaultValue: number = 0): number => {
+        if (val === undefined || val === null || val === '') return defaultValue;
+        const num = typeof val === 'string' ? parseFloat(val.replace(/[^\d.-]/g, '')) : Number(val);
+        return isNaN(num) ? defaultValue : num;
       };
+
+      // Helper to parse string safely
+      const parseString = (val: any, defaultValue: string = ''): string => {
+        if (val === undefined || val === null) return defaultValue;
+        return String(val).trim();
+      };
+
+      const hotel: Omit<Hotel, "id"> = {
+        name: parseString(name),
+        category: parseString(getVal(['category', 'star', 'star rating', 'rating', 'hotel category', 'category/star']), ''),
+        location: parseString(getVal(['location', 'city', 'area', 'address', 'place']), ''),
+        
+        // Room rates - try multiple column name variations
+        singleRoom: parseNumber(getVal(['singleroom', 'single room', 'single', 'sgl', '1br', '1 br', 'single room rate'])),
+        doubleRoom: parseNumber(getVal(['doubleroom', 'double room', 'double', 'dbl', '2br', '2 br', 'double room rate', 'twin'])),
+        tripleRoom: parseNumber(getVal(['tripleroom', 'triple room', 'triple', 'tpl', '3br', '3 br', 'triple room rate'])),
+        quadRoom: parseNumber(getVal(['quadroom', 'quad room', 'quad', 'quadruple', '4br', '4 br', 'quad room rate'])),
+        sixRoom: parseNumber(getVal(['sixroom', 'six room', '6br', '6 br', 'six room rate']), 0),
+        
+        // Extra charges
+        extraBed: parseNumber(getVal(['extrabed', 'extra bed', 'extra bed > 11yrs', 'ex. bed > 11yrs', 'extra bed rate', 'ex bed'])),
+        childWithBed: parseNumber(getVal(['childwithbed', 'child with bed', 'cwb', 'cwb [3-11 yrs]', 'child w/ bed', 'child with bed rate'])),
+        childWithoutBed: parseNumber(getVal(['childwithoutbed', 'child without bed', 'cnb', 'child w/o bed', 'child without bed rate'])),
+        childWithoutBed3to5: parseNumber(getVal(['cnb 3-5', 'cnb [3-5 yrs]', 'child no bed 3-5', 'child without bed 3-5']), 0),
+        childWithoutBed5to11: parseNumber(getVal(['cnb 5-11', 'cnb [5-11 yrs]', 'child no bed 5-11', 'child without bed 5-11']), 0),
+        infant: parseNumber(getVal(['infant', 'infant rate', 'baby']), 0),
+        
+        // Meal plan and status
+        mealPlan: parseString(getVal(['mealplan', 'meal plan', 'meal', 'board', 'board basis']), 'BB').toUpperCase(),
+        status: getVal(['status', 'active', 'inactive']) === "inactive" ? "inactive" : "active",
+      };
+
+      // Validate meal plan
+      const validMealPlans = ['RO', 'BB', 'HB', 'FB', 'AI', 'ROOM ONLY', 'BED & BREAKFAST', 'HALF BOARD', 'FULL BOARD', 'ALL INCLUSIVE'];
+      const mealPlanUpper = hotel.mealPlan.toUpperCase();
+      if (!validMealPlans.some(vp => mealPlanUpper.includes(vp))) {
+        hotel.mealPlan = 'BB'; // Default to BB if invalid
+      } else {
+        // Normalize meal plan codes
+        if (mealPlanUpper.includes('ROOM ONLY') || mealPlanUpper.includes('RO')) hotel.mealPlan = 'RO';
+        else if (mealPlanUpper.includes('BED & BREAKFAST') || mealPlanUpper.includes('BREAKFAST') || mealPlanUpper.includes('BB')) hotel.mealPlan = 'BB';
+        else if (mealPlanUpper.includes('HALF BOARD') || mealPlanUpper.includes('HB')) hotel.mealPlan = 'HB';
+        else if (mealPlanUpper.includes('FULL BOARD') || mealPlanUpper.includes('FB')) hotel.mealPlan = 'FB';
+        else if (mealPlanUpper.includes('ALL INCLUSIVE') || mealPlanUpper.includes('AI')) hotel.mealPlan = 'AI';
+      }
+
+      return hotel;
     })
     .filter((hotel): hotel is Omit<Hotel, "id"> => hotel !== null);
 }

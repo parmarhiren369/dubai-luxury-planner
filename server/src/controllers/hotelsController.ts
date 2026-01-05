@@ -156,9 +156,67 @@ export const setRateForDate = async (req: Request, res: Response) => {
 export const importHotels = async (req: Request, res: Response) => {
   try {
     const hotels = req.body;
-    const imported = await Hotel.insertMany(hotels);
-    res.status(201).json({ count: imported.length, hotels: imported });
+    
+    if (!Array.isArray(hotels) || hotels.length === 0) {
+      return res.status(400).json({ message: 'Invalid data: Expected an array of hotels' });
+    }
+
+    // Validate each hotel before importing
+    const validHotels = hotels.filter((hotel: any) => {
+      if (!hotel.name || typeof hotel.name !== 'string' || hotel.name.trim() === '') {
+        return false;
+      }
+      return true;
+    });
+
+    if (validHotels.length === 0) {
+      return res.status(400).json({ message: 'No valid hotels found. Each hotel must have a name.' });
+    }
+
+    // Ensure all required fields have defaults
+    const normalizedHotels = validHotels.map((hotel: any) => ({
+      name: String(hotel.name).trim(),
+      category: String(hotel.category || '').trim(),
+      location: String(hotel.location || '').trim(),
+      singleRoom: Number(hotel.singleRoom) || 0,
+      doubleRoom: Number(hotel.doubleRoom) || 0,
+      tripleRoom: Number(hotel.tripleRoom) || 0,
+      quadRoom: Number(hotel.quadRoom) || 0,
+      sixRoom: Number(hotel.sixRoom) || 0,
+      extraBed: Number(hotel.extraBed) || 0,
+      childWithBed: Number(hotel.childWithBed) || 0,
+      childWithoutBed: Number(hotel.childWithoutBed) || 0,
+      childWithoutBed3to5: Number(hotel.childWithoutBed3to5) || 0,
+      childWithoutBed5to11: Number(hotel.childWithoutBed5to11) || 0,
+      infant: Number(hotel.infant) || 0,
+      mealPlan: String(hotel.mealPlan || 'BB').toUpperCase(),
+      status: hotel.status === 'inactive' ? 'inactive' : 'active',
+      ratePeriods: []
+    }));
+
+    const imported = await Hotel.insertMany(normalizedHotels, { ordered: false });
+    res.status(201).json({ 
+      count: imported.length, 
+      hotels: imported,
+      message: `Successfully imported ${imported.length} hotel(s)`
+    });
   } catch (error: any) {
-    res.status(400).json({ message: error.message });
+    // Handle duplicate key errors gracefully
+    if (error.code === 11000) {
+      return res.status(400).json({ 
+        message: 'Some hotels already exist. Please check for duplicates.',
+        error: error.message 
+      });
+    }
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        message: 'Validation error: ' + Object.values(error.errors).map((e: any) => e.message).join(', '),
+        error: error.message 
+      });
+    }
+    
+    res.status(400).json({ message: error.message || 'Failed to import hotels' });
   }
 };
