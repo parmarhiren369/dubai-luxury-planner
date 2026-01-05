@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,11 +35,22 @@ import {
   User,
   Baby,
   Plane,
+  Loader2,
 } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useHotelStore } from "@/lib/hotelStore";
+import { Customer, Sightseeing, Meal } from "@/lib/excelUtils";
+import { customersApi, sightseeingApi, mealsApi, transfersApi, quotationsApi } from "@/lib/api";
+
+// Define Transfer interface locally if not in excelUtils
+interface Transfer {
+  id: string;
+  name: string;
+  type: string;
+  price: number;
+}
 
 interface QuotationItem {
   type: "hotel" | "sightseeing" | "meal" | "transfer";
@@ -48,55 +59,35 @@ interface QuotationItem {
   unitPrice: number;
   total: number;
   details?: string;
+  referenceId?: string;
 }
-
-const customers = [
-  { id: "1", name: "John Smith", email: "john@example.com" },
-  { id: "2", name: "Sarah Johnson", email: "sarah@example.com" },
-  { id: "3", name: "Ahmed Hassan", email: "ahmed@example.com" },
-  { id: "4", name: "Maria Garcia", email: "maria@example.com" },
-];
-
-const sightseeingOptions = [
-  { id: "1", name: "Burj Khalifa - At The Top", adultPrice: 547, childPrice: 364 },
-  { id: "2", name: "Desert Safari with BBQ", adultPrice: 312, childPrice: 239 },
-  { id: "3", name: "Dubai Marina Cruise", adultPrice: 364, childPrice: 276 },
-  { id: "4", name: "Dubai Frame", adultPrice: 184, childPrice: 129 },
-  { id: "5", name: "Aquaventure Waterpark", adultPrice: 1084, childPrice: 900 },
-];
-
-const mealOptions = [
-  { id: "1", name: "Breakfast Buffet", price: 129 },
-  { id: "2", name: "Lunch Set Menu", price: 165 },
-  { id: "3", name: "Dinner Buffet", price: 239 },
-  { id: "4", name: "BBQ Dinner", price: 202 },
-];
-
-const transferOptions = [
-  { id: "1", name: "Airport - Hotel (Sedan)", price: 165 },
-  { id: "2", name: "Airport - Hotel (SUV)", price: 276 },
-  { id: "3", name: "City Tour (Half Day)", price: 441 },
-  { id: "4", name: "City Tour (Full Day)", price: 735 },
-];
 
 export default function CreateQuotation() {
   const { hotels, calculateStayCost, getRateForDate } = useHotelStore();
-  
+
+  // Master Data State
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [sightseeingOptions, setSightseeingOptions] = useState<Sightseeing[]>([]);
+  const [mealOptions, setMealOptions] = useState<Meal[]>([]);
+  const [transferOptions, setTransferOptions] = useState<Transfer[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Customer & Trip Details
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [quotationType, setQuotationType] = useState("");
   const [nationality, setNationality] = useState("");
-  
+
   // Passenger Details
   const [adults, setAdults] = useState(2);
   const [childrenWithBed, setChildrenWithBed] = useState(0);
   const [childrenWithoutBed, setChildrenWithoutBed] = useState(0);
   const [infants, setInfants] = useState(0);
-  
+
   // Dates
   const [arrivalDate, setArrivalDate] = useState<Date>();
   const [departureDate, setDepartureDate] = useState<Date>();
-  
+
   // Items
   const [items, setItems] = useState<QuotationItem[]>([]);
   const [notes, setNotes] = useState("");
@@ -116,16 +107,43 @@ export default function CreateQuotation() {
   // Transfer selection
   const [selectedTransfers, setSelectedTransfers] = useState<string[]>([]);
 
+  // Fetch initial data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoadingData(true);
+        const [customersData, sightseeingData, mealsData, transfersData] = await Promise.all([
+          customersApi.getAll({ status: 'active' }),
+          sightseeingApi.getAll({ status: 'active' }),
+          mealsApi.getAll({ status: 'active' }),
+          transfersApi.getAll({ status: 'active' })
+        ]);
+
+        setCustomers(customersData as unknown as Customer[]);
+        setSightseeingOptions(sightseeingData as unknown as Sightseeing[]);
+        setMealOptions(mealsData as unknown as Meal[]);
+        setTransferOptions(transfersData as unknown as Transfer[]);
+      } catch (error) {
+        console.error("Failed to fetch master data:", error);
+        toast.error("Failed to load options from database. Please check your connection.");
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   const totalPax = adults + childrenWithBed + childrenWithoutBed;
   const nights = arrivalDate && departureDate ? differenceInDays(departureDate, arrivalDate) : 0;
-  
+
   const activeHotels = hotels.filter(h => h.status === "active");
   const selectedHotelData = activeHotels.find(h => h.id === selectedHotel);
 
   // Calculate hotel price using store rates
   const getHotelPrice = () => {
     if (!selectedHotelData || !arrivalDate || !departureDate) return 0;
-    
+
     const { totalCost } = calculateStayCost(
       selectedHotel,
       roomType,
@@ -133,7 +151,7 @@ export default function CreateQuotation() {
       arrivalDate,
       departureDate
     );
-    
+
     return totalCost * numberOfRooms;
   };
 
@@ -175,7 +193,7 @@ export default function CreateQuotation() {
         const adultTotal = sight.adultPrice * adults;
         const childTotal = sight.childPrice * (childrenWithBed + childrenWithoutBed);
         const total = adultTotal + childTotal;
-        
+
         setItems((prev) => [
           ...prev,
           {
@@ -322,7 +340,7 @@ export default function CreateQuotation() {
                 </div>
                 <div>
                   <Label className="text-sm font-medium">Nationality</Label>
-                  <Input 
+                  <Input
                     placeholder="e.g., Indian"
                     value={nationality}
                     onChange={(e) => setNationality(e.target.value)}
