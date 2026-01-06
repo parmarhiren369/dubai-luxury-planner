@@ -151,9 +151,7 @@ The application uses MongoDB with the following main collections:
 - **meals**: Meal options
 - **transfers**: Transfer services
 - **entryTickets**: Entry ticket options
-- **visa**: Visa services
-
-## Features in Detail
+- **visa**: Visa services## Features in Detail
 
 ### Hotel Management
 - Add, edit, and delete hotels

@@ -96,6 +96,30 @@ export default function Hotels() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("rates");
 
+  // Helper to transform MongoDB _id to id
+  const transformHotel = (hotel: any): Hotel => {
+    return {
+      ...hotel,
+      id: hotel._id || hotel.id,
+    };
+  };
+
+  // Fetch hotels on mount
+  useEffect(() => {
+    const loadHotels = async () => {
+      try {
+        const data = await hotelsApi.getAll() as any[];
+        const transformedHotels = data.map(transformHotel);
+        store.setHotels(transformedHotels);
+      } catch (error) {
+        console.error("Failed to load hotels:", error);
+        toast.error("Failed to load hotels data.");
+      }
+    };
+    loadHotels();
+  }, []);
+
+>>>>>>> 35ec286 (Fix: Hotels page - Excel import and form submission issues)
   // Rate Management State
   const [selectedHotelForRate, setSelectedHotelForRate] = useState<string | null>(null);
   const [selectedRoomTypeForRate, setSelectedRoomTypeForRate] = useState<string>("2 BR");
@@ -191,8 +215,16 @@ export default function Hotels() {
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      console.log("No file selected");
+      return;
+    }
+
+    console.log("File selected:", file.name, file.type, file.size);
 
     // Validate file type
     const validExtensions = ['.xlsx', '.xls'];
@@ -208,12 +240,16 @@ export default function Hotels() {
     const loadingToast = toast.loading("Reading Excel file...");
 
     try {
+      console.log("Starting to parse Excel file...");
+      
       // Parse Excel file
       const data = await parseExcelFile<any>(file);
+      console.log("Excel parsed, rows found:", data?.length);
+      console.log("First row sample:", data?.[0]);
       
       if (!data || data.length === 0) {
         toast.dismiss(loadingToast);
-        toast.error("Excel file is empty or could not be read.");
+        toast.error("Excel file is empty or could not be read. Please check the file format.");
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
@@ -223,19 +259,36 @@ export default function Hotels() {
       toast.dismiss(loadingToast);
       const processingToast = toast.loading("Processing hotel data...");
 
-      // Transform data - this extracts hotel names and all rates from the Excel
+      // Transform data
+      console.log("Transforming data...");
       const transformedData = transformHotelImportData(data);
+      console.log("Transformed data:", transformedData.length, "hotels");
+      console.log("Sample transformed:", transformedData[0]);
 
       if (transformedData.length === 0) {
         toast.dismiss(processingToast);
         toast.error("No valid hotel data found. Please check that your Excel file has a 'Name' or 'Hotel Name' column.");
+        console.error("No valid hotels after transformation. Raw data sample:", data[0]);
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
         return;
       }
 
-      // Filter valid hotels with names
+      // Validate required fields
+      const invalidHotels = transformedData.filter((hotel, index) => {
+        if (!hotel.name || hotel.name.trim() === '') {
+          console.warn(`Row ${index + 2}: Missing hotel name`);
+          return true;
+        }
+        return false;
+      });
+
+      if (invalidHotels.length > 0) {
+        toast.dismiss(processingToast);
+        toast.warning(`${invalidHotels.length} row(s) skipped due to missing hotel names.`);
+      }
+
       const validHotels = transformedData.filter(hotel => hotel.name && hotel.name.trim() !== '');
 
       if (validHotels.length === 0) {
@@ -247,36 +300,34 @@ export default function Hotels() {
         return;
       }
 
-      // Create Hotel objects with IDs and import to local store
-      const hotelsWithIds: Hotel[] = validHotels.map((hotel, index) => ({
-        ...hotel,
-        id: `imported-${Date.now()}-${index}`,
-      }));
-
-      // Import to local store - this will update the hotels list
-      const importedCount = store.importHotels(hotelsWithIds);
-
       toast.dismiss(processingToast);
-      
-      // Show detailed success message with imported rates
-      const sampleHotel = hotelsWithIds[0];
-      const ratesSummary = `Single: AED ${sampleHotel.singleRoom}, Double: AED ${sampleHotel.doubleRoom}, Triple: AED ${sampleHotel.tripleRoom}`;
-      
-      toast.success(
-        `✅ ${importedCount} hotel(s) imported successfully!\n\nSample rates from "${sampleHotel.name}":\n${ratesSummary}`,
-        { duration: 5000 }
-      );
+      const importingToast = toast.loading(`Importing ${validHotels.length} hotel(s)...`);
 
-      console.log("Imported hotels:", hotelsWithIds);
+      console.log("Sending to API:", validHotels.length, "hotels");
+      console.log("Sample hotel data:", validHotels[0]);
+
+      // Import to backend API (saves to MongoDB)
+      const response: any = await hotelsApi.import(validHotels);
+      
+      console.log("Import response:", response);
+      
+      toast.dismiss(importingToast);
+      toast.success(`✅ ${response.count || validHotels.length} hotel(s) imported successfully!`);
+
+      // Refresh hotel list
+      const updatedHotels = await hotelsApi.getAll() as any[];
+      const transformedHotels = updatedHotels.map(transformHotel);
+      store.setHotels(transformedHotels);
 
     } catch (error: any) {
-      toast.dismiss();
-      console.error("Import error:", error);
+      toast.dismiss(loadingToast);
+      console.error("Import error details:", error);
+      console.error("Error stack:", error?.stack);
       
       let errorMessage = "Failed to import file. ";
-      if (error instanceof Error) {
+      if (error?.message) {
         errorMessage += error.message;
-      } else if (error.message) {
+      } else if (error instanceof Error) {
         errorMessage += error.message;
       } else {
         errorMessage += "Please check the file format and try again.";
@@ -296,21 +347,62 @@ export default function Hotels() {
     toast.success("Template downloaded!");
   };
 
-  const handleSubmit = () => {
-    if (editingHotel) {
-      store.updateHotel(editingHotel.id, formData);
-      toast.success("Hotel updated successfully!");
-    } else {
-      const newHotel: Hotel = {
-        ...formData,
-        id: `hotel-${Date.now()}`,
-      };
-      store.addHotel(newHotel);
-      toast.success("Hotel added successfully!");
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
     }
-    setIsDialogOpen(false);
-    setFormData(hotelTemplate);
-    setEditingHotel(null);
+
+    // Validate required fields
+    if (!formData.name || formData.name.trim() === '') {
+      toast.error("Please enter a hotel name");
+      return;
+    }
+
+    if (!formData.category || formData.category.trim() === '') {
+      toast.error("Please select a category");
+      return;
+    }
+
+    if (!formData.location || formData.location.trim() === '') {
+      toast.error("Please enter a location");
+      return;
+    }
+
+    const loadingToast = toast.loading(editingHotel ? "Updating hotel..." : "Adding hotel...");
+
+    try {
+      if (editingHotel) {
+        // Update existing hotel via API - use _id if available
+        const hotelId = editingHotel.id || (editingHotel as any)._id;
+        const updatedHotel = await hotelsApi.update(hotelId, formData);
+        toast.dismiss(loadingToast);
+        toast.success("✅ Hotel updated successfully!");
+        
+        // Refresh hotel list
+        const updatedHotels = await hotelsApi.getAll() as any[];
+        const transformedHotels = updatedHotels.map(transformHotel);
+        store.setHotels(transformedHotels);
+      } else {
+        // Create new hotel via API
+        const newHotel = await hotelsApi.create(formData);
+        toast.dismiss(loadingToast);
+        toast.success("✅ Hotel added successfully!");
+        
+        // Refresh hotel list
+        const updatedHotels = await hotelsApi.getAll() as any[];
+        const transformedHotels = updatedHotels.map(transformHotel);
+        store.setHotels(transformedHotels);
+      }
+      
+      setIsDialogOpen(false);
+      setFormData(hotelTemplate);
+      setEditingHotel(null);
+    } catch (error: any) {
+      toast.dismiss(loadingToast);
+      console.error("Save error:", error);
+      toast.error(error?.message || `Failed to ${editingHotel ? 'update' : 'add'} hotel. Please try again.`);
+    }
   };
 
   const handleEdit = (hotel: Hotel) => {
@@ -319,9 +411,27 @@ export default function Hotels() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    store.deleteHotel(id);
-    toast.success("Hotel deleted successfully!");
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this hotel?")) {
+      return;
+    }
+
+    const loadingToast = toast.loading("Deleting hotel...");
+
+    try {
+      await hotelsApi.delete(id);
+      toast.dismiss(loadingToast);
+      toast.success("✅ Hotel deleted successfully!");
+      
+      // Refresh hotel list
+      const updatedHotels = await hotelsApi.getAll() as any[];
+      const transformedHotels = updatedHotels.map(transformHotel);
+      store.setHotels(transformedHotels);
+    } catch (error: any) {
+      toast.dismiss(loadingToast);
+      console.error("Delete error:", error);
+      toast.error(error?.message || "Failed to delete hotel. Please try again.");
+    }
   };
 
   const openAddDialog = () => {
@@ -865,10 +975,10 @@ export default function Hotels() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSubmit}>
+            <Button type="button" onClick={(e) => handleSubmit(e)}>
               {editingHotel ? "Update Hotel" : "Add Hotel"}
             </Button>
           </DialogFooter>
