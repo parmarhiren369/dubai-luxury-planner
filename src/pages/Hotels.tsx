@@ -313,6 +313,14 @@ export default function Hotels() {
       console.log("Number of hotels:", validHotels.length);
       console.log("Sample data:", JSON.stringify(validHotels[0], null, 2));
 
+      // Verify hotelsApi is defined
+      if (typeof hotelsApi === 'undefined') {
+        throw new Error("hotelsApi is not defined. Please check the API configuration.");
+      }
+      if (typeof hotelsApi.import !== 'function') {
+        throw new Error("hotelsApi.import is not a function. Please check the API configuration.");
+      }
+
       // Import to backend API (saves to MongoDB)
       const response: any = await hotelsApi.import(validHotels);
 
