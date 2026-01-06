@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,53 +39,9 @@ import {
 } from "lucide-react";
 import { Customer } from "@/lib/excelUtils";
 import { toast } from "sonner";
+import { customersApi } from "@/lib/api";
 
-const initialCustomers: Customer[] = [
-  {
-    id: "1",
-    name: "John Smith",
-    email: "john.smith@email.com",
-    phone: "+1 234 567 8901",
-    nationality: "United States",
-    passportNo: "US12345678",
-    address: "123 Main St, New York, NY",
-    createdAt: "2024-01-15",
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Sarah Johnson",
-    email: "sarah.j@email.com",
-    phone: "+44 20 7123 4567",
-    nationality: "United Kingdom",
-    passportNo: "UK87654321",
-    address: "45 Oxford Street, London",
-    createdAt: "2024-01-20",
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "Ahmed Hassan",
-    email: "ahmed.h@email.com",
-    phone: "+971 50 123 4567",
-    nationality: "UAE",
-    passportNo: "AE11223344",
-    address: "Dubai Marina, Dubai",
-    createdAt: "2024-02-01",
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Maria Garcia",
-    email: "maria.g@email.com",
-    phone: "+34 612 345 678",
-    nationality: "Spain",
-    passportNo: "ES55667788",
-    address: "Calle Mayor 10, Madrid",
-    createdAt: "2024-02-10",
-    status: "inactive",
-  },
-];
+// Mock data removed in favor of API integration
 
 const customerTemplate: Omit<Customer, "id" | "createdAt"> = {
   name: "",
@@ -98,12 +54,37 @@ const customerTemplate: Omit<Customer, "id" | "createdAt"> = {
 };
 
 export default function Customers() {
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState<Omit<Customer, "id" | "createdAt">>(customerTemplate);
+
+  const fetchCustomers = async () => {
+    try {
+      const data = await customersApi.getAll();
+      if (Array.isArray(data)) {
+        const transformed = data.map((c: any) => ({
+          ...c,
+          id: c._id || c.id,
+          createdAt: c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          nationality: c.nationality || "",
+          passportNo: c.passportNo || "",
+          address: c.address || "",
+          status: c.status || 'active'
+        }));
+        setCustomers(transformed);
+      }
+    } catch (error) {
+      console.error("Failed to load customers:", error);
+      toast.error("Failed to load customers from server");
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomers();
+  }, []);
 
   const filteredCustomers = customers.filter((customer) => {
     const matchesSearch =
@@ -114,28 +95,23 @@ export default function Customers() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleSubmit = () => {
-    if (editingCustomer) {
-      setCustomers((prev) =>
-        prev.map((c) =>
-          c.id === editingCustomer.id
-            ? { ...formData, id: editingCustomer.id, createdAt: editingCustomer.createdAt }
-            : c
-        )
-      );
-      toast.success("Customer updated successfully!");
-    } else {
-      const newCustomer: Customer = {
-        ...formData,
-        id: `cust-${Date.now()}`,
-        createdAt: new Date().toISOString().split("T")[0],
-      };
-      setCustomers((prev) => [...prev, newCustomer]);
-      toast.success("Customer added successfully!");
+  const handleSubmit = async () => {
+    try {
+      if (editingCustomer) {
+        await customersApi.update(editingCustomer.id, formData);
+        toast.success("Customer updated successfully!");
+      } else {
+        await customersApi.create(formData);
+        toast.success("Customer added successfully!");
+      }
+      await fetchCustomers();
+      setIsDialogOpen(false);
+      setFormData(customerTemplate);
+      setEditingCustomer(null);
+    } catch (error) {
+      console.error("Error saving customer:", error);
+      toast.error("Failed to save customer");
     }
-    setIsDialogOpen(false);
-    setFormData(customerTemplate);
-    setEditingCustomer(null);
   };
 
   const handleEdit = (customer: Customer) => {
@@ -144,9 +120,16 @@ export default function Customers() {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    setCustomers((prev) => prev.filter((c) => c.id !== id));
-    toast.success("Customer deleted successfully!");
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this customer?")) return;
+    try {
+      await customersApi.delete(id);
+      toast.success("Customer deleted successfully!");
+      fetchCustomers();
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      toast.error("Failed to delete customer");
+    }
   };
 
   const openAddDialog = () => {

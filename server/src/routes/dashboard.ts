@@ -13,17 +13,17 @@ router.get('/stats', async (req: Request, res: Response) => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-    
+
     // Total bookings (confirmed quotations)
     const totalBookings = await Quotation.countDocuments({ status: 'confirmed' });
     const lastMonthBookings = await Quotation.countDocuments({
       status: 'confirmed',
       createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth }
     });
-    const bookingsGrowth = lastMonthBookings > 0 
+    const bookingsGrowth = lastMonthBookings > 0
       ? ((totalBookings - lastMonthBookings) / lastMonthBookings * 100).toFixed(1)
       : 0;
-    
+
     // Revenue this month
     const revenueData = await Quotation.aggregate([
       {
@@ -40,28 +40,28 @@ router.get('/stats', async (req: Request, res: Response) => {
       }
     ]);
     const revenue = revenueData[0]?.total || 0;
-    
+
     // Active customers
     const activeCustomers = await Customer.countDocuments({ status: 'active' });
     const newCustomersThisMonth = await Customer.countDocuments({
       status: 'active',
       createdAt: { $gte: startOfMonth }
     });
-    
+
     // Quotations sent
     const quotationsSent = await Quotation.countDocuments({ status: 'sent' });
     const totalQuotations = await Quotation.countDocuments();
-    
+
     // Hotels managed
     const hotelsManaged = await Hotel.countDocuments({ status: 'active' });
-    
+
     // Tour packages (sightseeing)
     const tourPackages = await Sightseeing.countDocuments({ status: 'active' });
-    
+
     res.json({
       totalBookings: {
         value: totalBookings,
-        growth: parseFloat(bookingsGrowth)
+        growth: typeof bookingsGrowth === 'string' ? parseFloat(bookingsGrowth) : bookingsGrowth
       },
       revenue: {
         value: revenue,

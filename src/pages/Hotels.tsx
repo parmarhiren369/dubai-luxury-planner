@@ -119,7 +119,6 @@ export default function Hotels() {
     loadHotels();
   }, []);
 
->>>>>>> 35ec286 (Fix: Hotels page - Excel import and form submission issues)
   // Rate Management State
   const [selectedHotelForRate, setSelectedHotelForRate] = useState<string | null>(null);
   const [selectedRoomTypeForRate, setSelectedRoomTypeForRate] = useState<string>("2 BR");
@@ -152,7 +151,7 @@ export default function Hotels() {
       const dateString = format(date, "yyyy-MM-dd");
       // Check if we have stored rates for this date, otherwise use base hotel rates
       const storedRate = store.getRateForDate(selectedHotelForRate, "SGL", selectedMealPlan, date);
-      
+
       initialRates[dateString] = {
         SGL: storedRate || hotel.singleRoom,
         DBL: store.getRateForDate(selectedHotelForRate, "DBL", selectedMealPlan, date) || hotel.doubleRoom,
@@ -241,12 +240,12 @@ export default function Hotels() {
 
     try {
       console.log("Starting to parse Excel file...");
-      
+
       // Parse Excel file
       const data = await parseExcelFile<any>(file);
       console.log("Excel parsed, rows found:", data?.length);
       console.log("First row sample:", data?.[0]);
-      
+
       if (!data || data.length === 0) {
         toast.dismiss(loadingToast);
         toast.error("Excel file is empty or could not be read. Please check the file format.");
@@ -308,9 +307,9 @@ export default function Hotels() {
 
       // Import to backend API (saves to MongoDB)
       const response: any = await hotelsApi.import(validHotels);
-      
+
       console.log("Import response:", response);
-      
+
       toast.dismiss(importingToast);
       toast.success(`✅ ${response.count || validHotels.length} hotel(s) imported successfully!`);
 
@@ -323,7 +322,7 @@ export default function Hotels() {
       toast.dismiss(loadingToast);
       console.error("Import error details:", error);
       console.error("Error stack:", error?.stack);
-      
+
       let errorMessage = "Failed to import file. ";
       if (error?.message) {
         errorMessage += error.message;
@@ -332,10 +331,10 @@ export default function Hotels() {
       } else {
         errorMessage += "Please check the file format and try again.";
       }
-      
+
       toast.error(errorMessage);
     }
-    
+
     // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -378,7 +377,7 @@ export default function Hotels() {
         const updatedHotel = await hotelsApi.update(hotelId, formData);
         toast.dismiss(loadingToast);
         toast.success("✅ Hotel updated successfully!");
-        
+
         // Refresh hotel list
         const updatedHotels = await hotelsApi.getAll() as any[];
         const transformedHotels = updatedHotels.map(transformHotel);
@@ -388,13 +387,13 @@ export default function Hotels() {
         const newHotel = await hotelsApi.create(formData);
         toast.dismiss(loadingToast);
         toast.success("✅ Hotel added successfully!");
-        
+
         // Refresh hotel list
         const updatedHotels = await hotelsApi.getAll() as any[];
         const transformedHotels = updatedHotels.map(transformHotel);
         store.setHotels(transformedHotels);
       }
-      
+
       setIsDialogOpen(false);
       setFormData(hotelTemplate);
       setEditingHotel(null);
@@ -422,7 +421,7 @@ export default function Hotels() {
       await hotelsApi.delete(id);
       toast.dismiss(loadingToast);
       toast.success("✅ Hotel deleted successfully!");
-      
+
       // Refresh hotel list
       const updatedHotels = await hotelsApi.getAll() as any[];
       const transformedHotels = updatedHotels.map(transformHotel);

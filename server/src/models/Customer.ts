@@ -16,9 +16,9 @@ const CustomerSchema = new Schema<ICustomer>({
   name: { type: String, required: true },
   email: { type: String, required: true, lowercase: true },
   phone: { type: String, required: true },
-  nationality: { type: String, required: true },
-  passportNo: { type: String, required: true },
-  address: { type: String, required: true },
+  nationality: { type: String, required: false },
+  passportNo: { type: String, required: false },
+  address: { type: String, required: false },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' }
 }, {
   timestamps: true
