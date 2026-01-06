@@ -129,20 +129,16 @@ export const hotelStore = {
     notifyListeners();
   },
 
-  importHotels: (newHotels: any[]) => {
-    // We assume the data passed here is already transformed and ready or comes from the API
-    // Actually, if we are using the API, we might just reload the whole list.
-    // But for optimistic UI updates or hybrid approaches, we can keep a simple version.
-
-    // For now, let's just create valid Hotel objects if they are missing IDs (local import case)
-    // or use them as is.
-    const validHotels: Hotel[] = newHotels.map((h, i) => ({
-      ...h,
-      id: h.id || `imported-${Date.now()}-${i}`
-    }));
-
-    hotelStore.setHotels([...hotelsData, ...validHotels]);
-    return validHotels.length;
+  importHotels: (newHotels: Hotel[]): number => {
+    // Replace existing hotels with imported ones (or merge based on name)
+    const existingNames = new Set(hotelsData.map(h => h.name.toLowerCase().trim()));
+    const uniqueNewHotels = newHotels.filter(h => !existingNames.has(h.name.toLowerCase().trim()));
+    
+    // Add unique new hotels to existing ones
+    hotelsData = [...hotelsData, ...uniqueNewHotels];
+    lastKnownGoodHotelsData = JSON.parse(JSON.stringify(hotelsData));
+    notifyListeners();
+    return uniqueNewHotels.length;
   },
 
   // Rate period management
