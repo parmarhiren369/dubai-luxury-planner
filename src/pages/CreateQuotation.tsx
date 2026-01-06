@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,22 +35,23 @@ import {
   User,
   Baby,
   Plane,
-  Loader2,
 } from "lucide-react";
 import { format, differenceInDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useHotelStore } from "@/lib/hotelStore";
-import { Customer, Sightseeing, Meal } from "@/lib/excelUtils";
-import { customersApi, sightseeingApi, mealsApi, transfersApi, quotationsApi } from "@/lib/api";
+import { useSightseeingStore } from "@/lib/sightseeingStore";
+import { useMealStore } from "@/lib/mealStore";
+import { useTransferStore } from "@/lib/transferStore";
 
-// Define Transfer interface locally if not in excelUtils
-interface Transfer {
-  id: string;
-  name: string;
-  type: string;
-  price: number;
-}
+// Mock customers for local functionality
+const mockCustomers = [
+  { id: "1", name: "Ahmed Al Mansouri", email: "ahmed@example.com", phone: "+971501234567" },
+  { id: "2", name: "Sarah Johnson", email: "sarah@example.com", phone: "+971502345678" },
+  { id: "3", name: "Mohammed Khan", email: "mohammed@example.com", phone: "+971503456789" },
+  { id: "4", name: "Lisa Chen", email: "lisa@example.com", phone: "+971504567890" },
+  { id: "5", name: "David Wilson", email: "david@example.com", phone: "+971505678901" },
+];
 
 interface QuotationItem {
   type: "hotel" | "sightseeing" | "meal" | "transfer";
@@ -63,17 +64,18 @@ interface QuotationItem {
 }
 
 export default function CreateQuotation() {
-  const store = useHotelStore();
-  const hotels = store.getHotels();
-  const { calculateStayCost, getRateForDate } = store;
+  const hotelStore = useHotelStore();
+  const sightseeingStore = useSightseeingStore();
+  const mealStore = useMealStore();
+  const transferStore = useTransferStore();
 
-  // Master Data State
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [sightseeingOptions, setSightseeingOptions] = useState<Sightseeing[]>([]);
-  const [mealOptions, setMealOptions] = useState<Meal[]>([]);
-  const [transferOptions, setTransferOptions] = useState<Transfer[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const hotels = hotelStore.getHotels();
+  const sightseeingOptions = sightseeingStore.getActiveSightseeing();
+  const mealOptions = mealStore.getActiveMeals();
+  const transferOptions = transferStore.getActiveTransfers();
+  const customers = mockCustomers;
+
+  const { calculateStayCost } = hotelStore;
 
   // Customer & Trip Details
   const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -108,33 +110,6 @@ export default function CreateQuotation() {
 
   // Transfer selection
   const [selectedTransfers, setSelectedTransfers] = useState<string[]>([]);
-
-  // Fetch initial data
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setIsLoadingData(true);
-        const [customersData, sightseeingData, mealsData, transfersData] = await Promise.all([
-          customersApi.getAll({ status: 'active' }),
-          sightseeingApi.getAll({ status: 'active' }),
-          mealsApi.getAll({ status: 'active' }),
-          transfersApi.getAll({ status: 'active' })
-        ]);
-
-        setCustomers(customersData as unknown as Customer[]);
-        setSightseeingOptions(sightseeingData as unknown as Sightseeing[]);
-        setMealOptions(mealsData as unknown as Meal[]);
-        setTransferOptions(transfersData as unknown as Transfer[]);
-      } catch (error) {
-        console.error("Failed to fetch master data:", error);
-        toast.error("Failed to load options from database. Please check your connection.");
-      } finally {
-        setIsLoadingData(false);
-      }
-    };
-
-    fetchData();
-  }, []);
 
   const totalPax = adults + childrenWithBed + childrenWithoutBed;
   const nights = arrivalDate && departureDate ? differenceInDays(departureDate, arrivalDate) : 0;
@@ -262,44 +237,33 @@ export default function CreateQuotation() {
   const grandTotal = items.reduce((acc, item) => acc + item.total, 0);
   const perHeadCost = totalPax > 0 ? grandTotal / totalPax : 0;
 
-  const generateQuotation = async () => {
+  const generateQuotation = () => {
     if (!selectedCustomer || !arrivalDate || !departureDate || items.length === 0) {
       toast.error("Please fill in all required fields and add items");
       return;
     }
 
-    try {
-      setIsSubmitting(true);
-      const customer = customers.find(c => c.id === selectedCustomer);
-
-      const payload = {
-        customerId: selectedCustomer,
-        customerName: customer?.name || "Unknown",
-        type: quotationType,
-        nationality,
-        adults,
-        childrenWithBed,
-        childrenWithoutBed,
-        infants,
-        arrivalDate,
-        departureDate,
-        items,
-        notes
-      };
-
-      await quotationsApi.create(payload);
-      toast.success("Quotation generated successfully!");
-
-      // Reset form or redirect? For now, just reset items to prevent duplicate submission
-      setItems([]);
-      // Maybe navigate to list page? 
-      // window.location.href = "/quotations"; // naive, usage of router is better but not passed here.
-    } catch (error: any) {
-      console.error("Failed to create quotation:", error);
-      toast.error(error.message || "Failed to create quotation");
-    } finally {
-      setIsSubmitting(false);
-    }
+    const customer = customers.find(c => c.id === selectedCustomer);
+    
+    // For now, just show success - in production this would save to database
+    toast.success(`Quotation generated for ${customer?.name}!`);
+    console.log("Quotation Data:", {
+      customerId: selectedCustomer,
+      customerName: customer?.name || "Unknown",
+      type: quotationType,
+      nationality,
+      adults,
+      childrenWithBed,
+      childrenWithoutBed,
+      infants,
+      arrivalDate,
+      departureDate,
+      nights,
+      items,
+      grandTotal,
+      perHeadCost,
+      notes
+    });
   };
 
   const getItemIcon = (type: QuotationItem["type"]) => {
@@ -319,14 +283,6 @@ export default function CreateQuotation() {
       case "transfer": return "bg-wtb-cyan/10 text-wtb-cyan";
     }
   };
-
-  if (isLoadingData) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -905,14 +861,10 @@ export default function CreateQuotation() {
                   className="w-full"
                   size="lg"
                   onClick={generateQuotation}
-                  disabled={isSubmitting || items.length === 0}
+                  disabled={items.length === 0}
                 >
-                  {isSubmitting ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <FileText className="w-4 h-4 mr-2" />
-                  )}
-                  {isSubmitting ? "Generating..." : "Generate Quotation"}
+                  <FileText className="w-4 h-4 mr-2" />
+                  Generate Quotation
                 </Button>
                 <Button variant="outline" className="w-full">
                   Save as Draft
