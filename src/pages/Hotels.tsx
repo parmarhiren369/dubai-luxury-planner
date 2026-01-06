@@ -50,7 +50,6 @@ import {
 } from "lucide-react";
 import { Hotel, exportToExcel, parseExcelFile, downloadTemplate, transformHotelImportData } from "@/lib/excelUtils";
 import { useHotelStore } from "@/lib/hotelStore";
-import { hotelsApi } from "@/lib/api";
 import { toast } from "sonner";
 import { format, eachDayOfInterval } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -97,20 +96,6 @@ export default function Hotels() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState("rates");
 
-  // Fetch hotels on mount
-  useEffect(() => {
-    const loadHotels = async () => {
-      try {
-        const data = await hotelsApi.getAll() as unknown as Hotel[];
-        store.setHotels(data);
-      } catch (error) {
-        console.error("Failed to load hotels:", error);
-        toast.error("Failed to load hotels data.");
-      }
-    };
-    loadHotels();
-  }, []);
-
   // Rate Management State
   const [selectedHotelForRate, setSelectedHotelForRate] = useState<string | null>(null);
   const [selectedRoomTypeForRate, setSelectedRoomTypeForRate] = useState<string>("2 BR");
@@ -128,28 +113,37 @@ export default function Hotels() {
       hotel.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // When form values change, load daily rates from backend
+  // When form values change, load daily rates from local store
   useEffect(() => {
     if (!selectedHotelForRate || !rateStartDate || !rateEndDate) return;
 
-    const fetchRates = async () => {
-      try {
-        const response: { rates: Record<string, Record<string, number>> } = await hotelsApi.getRatesForPeriod(
-          selectedHotelForRate,
-          rateStartDate.toISOString(),
-          rateEndDate.toISOString(),
-          selectedMealPlan
-        );
+    // Initialize daily rates from the selected hotel's base rates
+    const hotel = hotels.find(h => h.id === selectedHotelForRate);
+    if (!hotel) return;
 
-        setDailyRates(response.rates || {});
-      } catch (error) {
-        console.error("Failed to load rates", error);
-        toast.error("Failed to load rates for selected period.");
-      }
-    };
+    const days = eachDayOfInterval({ start: rateStartDate, end: rateEndDate });
+    const initialRates: Record<string, Record<string, number>> = {};
 
-    void fetchRates();
-  }, [selectedHotelForRate, selectedMealPlan, rateStartDate, rateEndDate]);
+    days.forEach(date => {
+      const dateString = format(date, "yyyy-MM-dd");
+      // Check if we have stored rates for this date, otherwise use base hotel rates
+      const storedRate = store.getRateForDate(selectedHotelForRate, "SGL", selectedMealPlan, date);
+      
+      initialRates[dateString] = {
+        SGL: storedRate || hotel.singleRoom,
+        DBL: store.getRateForDate(selectedHotelForRate, "DBL", selectedMealPlan, date) || hotel.doubleRoom,
+        TPL: store.getRateForDate(selectedHotelForRate, "TPL", selectedMealPlan, date) || hotel.tripleRoom,
+        QUAD: store.getRateForDate(selectedHotelForRate, "QUAD", selectedMealPlan, date) || hotel.quadRoom,
+        SIX: store.getRateForDate(selectedHotelForRate, "SIX", selectedMealPlan, date) || hotel.sixRoom,
+        EX_BED_11: store.getRateForDate(selectedHotelForRate, "EX_BED_11", selectedMealPlan, date) || hotel.extraBed,
+        CWB_3_11: store.getRateForDate(selectedHotelForRate, "CWB_3_11", selectedMealPlan, date) || hotel.childWithBed,
+        CNB_3_5: store.getRateForDate(selectedHotelForRate, "CNB_3_5", selectedMealPlan, date) || hotel.childWithoutBed3to5,
+        CNB_5_11: store.getRateForDate(selectedHotelForRate, "CNB_5_11", selectedMealPlan, date) || hotel.childWithoutBed5to11,
+      };
+    });
+
+    setDailyRates(initialRates);
+  }, [selectedHotelForRate, selectedMealPlan, rateStartDate, rateEndDate, hotels, store]);
 
   // Handle daily rate change
   const handleRateChange = (date: string, roomType: string, value: string) => {
@@ -163,32 +157,21 @@ export default function Hotels() {
     }));
   };
 
-  // Save all rates for the period (persist to backend)
-  const handleSaveRates = async () => {
+  // Save all rates for the period (persist to local store)
+  const handleSaveRates = () => {
     if (!selectedHotelForRate || !rateStartDate || !rateEndDate) {
       toast.error("Please select a hotel and date range.");
       return;
     }
 
-    try {
-      const rates: Array<{ date: string; roomType: string; rate: number }> = [];
-
-      Object.entries(dailyRates).forEach(([dateString, roomRates]) => {
-        Object.entries(roomRates).forEach(([roomType, rate]) => {
-          rates.push({ date: dateString, roomType, rate });
-        });
+    // Save each rate to the store
+    Object.entries(dailyRates).forEach(([dateString, roomRates]) => {
+      Object.entries(roomRates).forEach(([roomType, rate]) => {
+        store.setRateForDate(selectedHotelForRate, roomType, selectedMealPlan, new Date(dateString), rate);
       });
+    });
 
-      await hotelsApi.bulkSetRates(selectedHotelForRate, {
-        rates,
-        mealPlan: selectedMealPlan
-      });
-
-      toast.success("Rates saved successfully!");
-    } catch (error) {
-      console.error("Failed to save rates", error);
-      toast.error("Failed to save rates. Please try again.");
-    }
+    toast.success("Rates saved successfully!");
   };
 
   // Copy rate to all visible dates
@@ -238,13 +221,13 @@ export default function Hotels() {
       }
 
       toast.dismiss(loadingToast);
-      toast.loading("Processing hotel data...");
+      const processingToast = toast.loading("Processing hotel data...");
 
-      // Transform data
+      // Transform data - this extracts hotel names and all rates from the Excel
       const transformedData = transformHotelImportData(data);
 
       if (transformedData.length === 0) {
-        toast.dismiss(loadingToast);
+        toast.dismiss(processingToast);
         toast.error("No valid hotel data found. Please check that your Excel file has a 'Name' or 'Hotel Name' column.");
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
@@ -252,24 +235,11 @@ export default function Hotels() {
         return;
       }
 
-      // Validate required fields
-      const invalidHotels = transformedData.filter((hotel, index) => {
-        if (!hotel.name || hotel.name.trim() === '') {
-          console.warn(`Row ${index + 2}: Missing hotel name`);
-          return true;
-        }
-        return false;
-      });
-
-      if (invalidHotels.length > 0) {
-        toast.dismiss(loadingToast);
-        toast.warning(`${invalidHotels.length} row(s) skipped due to missing hotel names.`);
-      }
-
+      // Filter valid hotels with names
       const validHotels = transformedData.filter(hotel => hotel.name && hotel.name.trim() !== '');
 
       if (validHotels.length === 0) {
-        toast.dismiss(loadingToast);
+        toast.dismiss(processingToast);
         toast.error("No valid hotels to import. Please check your data.");
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
@@ -277,21 +247,30 @@ export default function Hotels() {
         return;
       }
 
-      toast.dismiss(loadingToast);
-      toast.loading(`Importing ${validHotels.length} hotel(s)...`);
+      // Create Hotel objects with IDs and import to local store
+      const hotelsWithIds: Hotel[] = validHotels.map((hotel, index) => ({
+        ...hotel,
+        id: `imported-${Date.now()}-${index}`,
+      }));
 
-      // Import to backend
-      const response: any = await hotelsApi.import(validHotels);
+      // Import to local store - this will update the hotels list
+      const importedCount = store.importHotels(hotelsWithIds);
+
+      toast.dismiss(processingToast);
       
-      toast.dismiss(loadingToast);
-      toast.success(`✅ ${response.count || validHotels.length} hotel(s) imported successfully!`);
+      // Show detailed success message with imported rates
+      const sampleHotel = hotelsWithIds[0];
+      const ratesSummary = `Single: AED ${sampleHotel.singleRoom}, Double: AED ${sampleHotel.doubleRoom}, Triple: AED ${sampleHotel.tripleRoom}`;
+      
+      toast.success(
+        `✅ ${importedCount} hotel(s) imported successfully!\n\nSample rates from "${sampleHotel.name}":\n${ratesSummary}`,
+        { duration: 5000 }
+      );
 
-      // Refresh hotel list
-      const updatedHotels = await hotelsApi.getAll();
-      store.setHotels(updatedHotels);
+      console.log("Imported hotels:", hotelsWithIds);
 
     } catch (error: any) {
-      toast.dismiss(loadingToast);
+      toast.dismiss();
       console.error("Import error:", error);
       
       let errorMessage = "Failed to import file. ";
@@ -779,7 +758,7 @@ export default function Hotels() {
 
             <div className="col-span-2 grid grid-cols-4 gap-4">
               <div>
-                <Label>Single Room ($)</Label>
+                <Label>Single Room (AED)</Label>
                 <Input
                   type="number"
                   value={formData.singleRoom}
@@ -787,7 +766,7 @@ export default function Hotels() {
                 />
               </div>
               <div>
-                <Label>Double Room ($)</Label>
+                <Label>Double Room (AED)</Label>
                 <Input
                   type="number"
                   value={formData.doubleRoom}
@@ -795,7 +774,7 @@ export default function Hotels() {
                 />
               </div>
               <div>
-                <Label>Triple Room ($)</Label>
+                <Label>Triple Room (AED)</Label>
                 <Input
                   type="number"
                   value={formData.tripleRoom}
@@ -803,7 +782,7 @@ export default function Hotels() {
                 />
               </div>
               <div>
-                <Label>Quad Room ($)</Label>
+                <Label>Quad Room (AED)</Label>
                 <Input
                   type="number"
                   value={formData.quadRoom}
@@ -814,7 +793,7 @@ export default function Hotels() {
 
             <div className="col-span-2 grid grid-cols-4 gap-4">
               <div>
-                <Label>Extra Bed ($)</Label>
+                <Label>Extra Bed (AED)</Label>
                 <Input
                   type="number"
                   value={formData.extraBed}
@@ -822,7 +801,7 @@ export default function Hotels() {
                 />
               </div>
               <div>
-                <Label>Child w/ Bed ($)</Label>
+                <Label>Child w/ Bed (AED)</Label>
                 <Input
                   type="number"
                   value={formData.childWithBed}
@@ -830,7 +809,7 @@ export default function Hotels() {
                 />
               </div>
               <div>
-                <Label>Child w/o Bed ($)</Label>
+                <Label>Child w/o Bed (AED)</Label>
                 <Input
                   type="number"
                   value={formData.childWithoutBed}
@@ -838,7 +817,7 @@ export default function Hotels() {
                 />
               </div>
               <div>
-                <Label>Infant ($)</Label>
+                <Label>Infant (AED)</Label>
                 <Input
                   type="number"
                   value={formData.infant}
