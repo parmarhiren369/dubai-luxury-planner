@@ -40,115 +40,9 @@ import {
   Ticket,
   Clock,
 } from "lucide-react";
-import { Sightseeing, exportToExcel, parseExcelFile, downloadTemplate } from "@/lib/excelUtils";
+import { useSightseeingStore, Sightseeing } from "@/lib/sightseeingStore";
+import { exportToExcel, parseExcelFile, downloadTemplate } from "@/lib/excelUtils";
 import { toast } from "sonner";
-
-const initialSightseeing: Sightseeing[] = [
-  {
-    id: "1",
-    name: "Burj Khalifa - At The Top (124 & 125 Floor)",
-    description: "Visit the world's tallest building and enjoy breathtaking views of Dubai from the observation decks.",
-    duration: "2 hours",
-    adultPrice: 149,
-    childPrice: 119,
-    infantPrice: 0,
-    entryTicket: 149,
-    category: "Landmark",
-    includes: "Entry ticket, Elevator ride, Observation deck access",
-    status: "active",
-  },
-  {
-    id: "2",
-    name: "Desert Safari with BBQ Dinner",
-    description: "Experience dune bashing, camel riding, sandboarding, and enjoy a traditional BBQ dinner under the stars.",
-    duration: "6 hours",
-    adultPrice: 85,
-    childPrice: 65,
-    infantPrice: 0,
-    entryTicket: 0,
-    category: "Adventure",
-    includes: "Pick up & drop, Dune bashing, Camel ride, BBQ dinner, Entertainment",
-    status: "active",
-  },
-  {
-    id: "3",
-    name: "Dubai Marina Cruise",
-    description: "Enjoy a luxury dhow cruise along the stunning Dubai Marina with dinner buffet.",
-    duration: "2.5 hours",
-    adultPrice: 99,
-    childPrice: 75,
-    infantPrice: 0,
-    entryTicket: 0,
-    category: "Cruise",
-    includes: "Welcome drinks, Dinner buffet, Entertainment, Marina views",
-    status: "active",
-  },
-  {
-    id: "4",
-    name: "Palm Jumeirah Boat Tour",
-    description: "Cruise around the iconic Palm Jumeirah island and see the Atlantis Hotel up close.",
-    duration: "1.5 hours",
-    adultPrice: 75,
-    childPrice: 55,
-    infantPrice: 0,
-    entryTicket: 0,
-    category: "Cruise",
-    includes: "Boat ride, Photo opportunities, Water & soft drinks",
-    status: "active",
-  },
-  {
-    id: "5",
-    name: "Dubai Frame",
-    description: "Visit the iconic Dubai Frame and enjoy panoramic views of old and new Dubai.",
-    duration: "1.5 hours",
-    adultPrice: 50,
-    childPrice: 35,
-    infantPrice: 0,
-    entryTicket: 50,
-    category: "Landmark",
-    includes: "Entry ticket, Glass floor experience, Museum access",
-    status: "active",
-  },
-  {
-    id: "6",
-    name: "Aquaventure Waterpark",
-    description: "Experience thrilling water slides and attractions at Atlantis The Palm.",
-    duration: "Full Day",
-    adultPrice: 295,
-    childPrice: 240,
-    infantPrice: 0,
-    entryTicket: 295,
-    category: "Theme Park",
-    includes: "All rides access, Beach access, Lost Chambers Aquarium",
-    status: "active",
-  },
-  {
-    id: "7",
-    name: "Global Village",
-    description: "Explore pavilions from around the world with entertainment, shopping, and food.",
-    duration: "4-5 hours",
-    adultPrice: 25,
-    childPrice: 15,
-    infantPrice: 0,
-    entryTicket: 25,
-    category: "Entertainment",
-    includes: "Entry ticket, Access to all pavilions",
-    status: "active",
-  },
-  {
-    id: "8",
-    name: "Miracle Garden",
-    description: "Visit the world's largest natural flower garden with stunning floral displays.",
-    duration: "2-3 hours",
-    adultPrice: 55,
-    childPrice: 40,
-    infantPrice: 0,
-    entryTicket: 55,
-    category: "Attraction",
-    includes: "Entry ticket, Photo opportunities",
-    status: "active",
-  },
-];
 
 const sightseeingTemplate: Omit<Sightseeing, "id"> = {
   name: "",
@@ -164,7 +58,9 @@ const sightseeingTemplate: Omit<Sightseeing, "id"> = {
 };
 
 export default function SightseeingPage() {
-  const [sightseeing, setSightseeing] = useState<Sightseeing[]>(initialSightseeing);
+  const store = useSightseeingStore();
+  const sightseeing = store.getSightseeing();
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -194,13 +90,11 @@ export default function SightseeingPage() {
 
     try {
       const data = await parseExcelFile<Omit<Sightseeing, "id">>(file);
-      const newItems = data.map((item, index) => ({
+      const count = store.importSightseeing(data.map(item => ({
         ...item,
-        id: `imported-${Date.now()}-${index}`,
         status: item.status || "active",
-      })) as Sightseeing[];
-      setSightseeing((prev) => [...prev, ...newItems]);
-      toast.success(`${newItems.length} sightseeing items imported successfully!`);
+      })));
+      toast.success(`${count} sightseeing items imported successfully!`);
     } catch (error) {
       toast.error("Failed to import file. Please check the format.");
     }
@@ -216,19 +110,16 @@ export default function SightseeingPage() {
   };
 
   const handleSubmit = () => {
+    if (!formData.name.trim()) {
+      toast.error("Please enter a name");
+      return;
+    }
+
     if (editingItem) {
-      setSightseeing((prev) =>
-        prev.map((item) =>
-          item.id === editingItem.id ? { ...formData, id: editingItem.id } : item
-        )
-      );
+      store.updateSightseeing(editingItem.id, formData);
       toast.success("Sightseeing updated successfully!");
     } else {
-      const newItem: Sightseeing = {
-        ...formData,
-        id: `sight-${Date.now()}`,
-      };
-      setSightseeing((prev) => [...prev, newItem]);
+      store.addSightseeing(formData);
       toast.success("Sightseeing added successfully!");
     }
     setIsDialogOpen(false);
@@ -243,7 +134,7 @@ export default function SightseeingPage() {
   };
 
   const handleDelete = (id: string) => {
-    setSightseeing((prev) => prev.filter((item) => item.id !== id));
+    store.deleteSightseeing(id);
     toast.success("Sightseeing deleted successfully!");
   };
 
@@ -340,8 +231,8 @@ export default function SightseeingPage() {
                 <TableHead className="font-semibold min-w-[250px]">Tour / Attraction</TableHead>
                 <TableHead className="font-semibold">Category</TableHead>
                 <TableHead className="font-semibold">Duration</TableHead>
-                <TableHead className="font-semibold text-right">Adult</TableHead>
-                <TableHead className="font-semibold text-right">Child</TableHead>
+                <TableHead className="font-semibold text-right">Adult (AED)</TableHead>
+                <TableHead className="font-semibold text-right">Child (AED)</TableHead>
                 <TableHead className="font-semibold text-right">Entry Ticket</TableHead>
                 <TableHead className="font-semibold">Status</TableHead>
                 <TableHead className="font-semibold text-center">Actions</TableHead>
@@ -374,13 +265,13 @@ export default function SightseeingPage() {
                       <span className="text-sm">{item.duration}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-right font-medium">${item.adultPrice}</TableCell>
-                  <TableCell className="text-right font-medium">${item.childPrice}</TableCell>
+                  <TableCell className="text-right font-medium">AED {item.adultPrice.toLocaleString()}</TableCell>
+                  <TableCell className="text-right font-medium">AED {item.childPrice.toLocaleString()}</TableCell>
                   <TableCell className="text-right">
                     {item.entryTicket > 0 ? (
                       <div className="flex items-center justify-end gap-1">
                         <Ticket className="w-3 h-3 text-wtb-gold" />
-                        <span className="font-medium">${item.entryTicket}</span>
+                        <span className="font-medium">AED {item.entryTicket.toLocaleString()}</span>
                       </div>
                     ) : (
                       <span className="text-muted-foreground">Included</span>
@@ -487,7 +378,7 @@ export default function SightseeingPage() {
             </div>
 
             <div>
-              <Label>Adult Price ($)</Label>
+              <Label>Adult Price (AED)</Label>
               <Input
                 type="number"
                 value={formData.adultPrice}
@@ -496,7 +387,7 @@ export default function SightseeingPage() {
             </div>
 
             <div>
-              <Label>Child Price ($)</Label>
+              <Label>Child Price (AED)</Label>
               <Input
                 type="number"
                 value={formData.childPrice}
@@ -505,7 +396,7 @@ export default function SightseeingPage() {
             </div>
 
             <div>
-              <Label>Infant Price ($)</Label>
+              <Label>Infant Price (AED)</Label>
               <Input
                 type="number"
                 value={formData.infantPrice}
@@ -514,7 +405,7 @@ export default function SightseeingPage() {
             </div>
 
             <div>
-              <Label>Entry Ticket ($)</Label>
+              <Label>Entry Ticket (AED)</Label>
               <Input
                 type="number"
                 value={formData.entryTicket}
