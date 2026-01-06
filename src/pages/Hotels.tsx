@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { Hotel, exportToExcel, parseExcelFile, downloadTemplate, transformHotelImportData } from "@/lib/excelUtils";
 import { useHotelStore } from "@/lib/hotelStore";
+import { hotelsApi, API_BASE_URL } from "@/lib/api";
 import { toast } from "sonner";
 import { format, eachDayOfInterval } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -223,11 +224,14 @@ export default function Hotels() {
       return;
     }
 
-    console.log("File selected:", file.name, file.type, file.size);
+    console.log("=== STARTING EXCEL IMPORT ===");
+    console.log("File selected:", file.name, "Type:", file.type, "Size:", file.size, "bytes");
 
     // Validate file type
     const validExtensions = ['.xlsx', '.xls'];
     const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+    console.log("File extension:", fileExtension);
+    
     if (!validExtensions.includes(fileExtension)) {
       toast.error("Please upload a valid Excel file (.xlsx or .xls)");
       if (fileInputRef.current) {
@@ -243,8 +247,9 @@ export default function Hotels() {
 
       // Parse Excel file
       const data = await parseExcelFile<any>(file);
-      console.log("Excel parsed, rows found:", data?.length);
-      console.log("First row sample:", data?.[0]);
+      console.log("Excel parsed successfully!");
+      console.log("Raw data rows:", data?.length);
+      console.log("First row sample:", JSON.stringify(data?.[0], null, 2));
 
       if (!data || data.length === 0) {
         toast.dismiss(loadingToast);
@@ -261,13 +266,14 @@ export default function Hotels() {
       // Transform data
       console.log("Transforming data...");
       const transformedData = transformHotelImportData(data);
-      console.log("Transformed data:", transformedData.length, "hotels");
+      console.log("=== TRANSFORMATION COMPLETE ===");
+      console.log("Total valid hotels:", transformedData.length);
       console.log("Sample transformed:", transformedData[0]);
 
       if (transformedData.length === 0) {
         toast.dismiss(processingToast);
         toast.error("No valid hotel data found. Please check that your Excel file has a 'Name' or 'Hotel Name' column.");
-        console.error("No valid hotels after transformation. Raw data sample:", data[0]);
+        console.error("No valid hotels after transformation. Raw data sample:", JSON.stringify(data[0], null, 2));
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
@@ -300,31 +306,48 @@ export default function Hotels() {
       }
 
       toast.dismiss(processingToast);
-      const importingToast = toast.loading(`Importing ${validHotels.length} hotel(s)...`);
+      const importingToast = toast.loading(`Importing ${validHotels.length} hotel(s) to database...`);
 
-      console.log("Sending to API:", validHotels.length, "hotels");
-      console.log("Sample hotel data:", validHotels[0]);
+      console.log("=== SENDING TO API ===");
+      console.log("API URL:", `${API_BASE_URL}/hotels/import`);
+      console.log("Number of hotels:", validHotels.length);
+      console.log("Sample data:", JSON.stringify(validHotels[0], null, 2));
 
       // Import to backend API (saves to MongoDB)
       const response: any = await hotelsApi.import(validHotels);
 
-      console.log("Import response:", response);
+      console.log("=== API RESPONSE RECEIVED ===");
+      console.log("Response:", response);
 
       toast.dismiss(importingToast);
-      toast.success(`✅ ${response.count || validHotels.length} hotel(s) imported successfully!`);
+      toast.success(`✅ ${response?.count || validHotels.length} hotel(s) imported successfully!`);
+      
+      if (response?.message) {
+        console.log("Server message:", response.message);
+      }
 
       // Refresh hotel list
+      console.log("Refreshing hotel list...");
       const updatedHotels = await hotelsApi.getAll() as any[];
       const transformedHotels = updatedHotels.map(transformHotel);
       store.setHotels(transformedHotels);
+      console.log("Hotel list refreshed. Total hotels:", transformedHotels.length);
 
     } catch (error: any) {
       toast.dismiss(loadingToast);
-      console.error("Import error details:", error);
-      console.error("Error stack:", error?.stack);
-
+      console.error("=== IMPORT ERROR ===");
+      console.error("Error type:", error.constructor.name);
+      console.error("Error message:", error.message);
+      console.error("Error status:", error.status);
+      console.error("Full error:", error);
+      
       let errorMessage = "Failed to import file. ";
-      if (error?.message) {
+      
+      if (error.status === 400) {
+        errorMessage += error.message || "Bad request. Please check your data format.";
+      } else if (error.status === 500) {
+        errorMessage += "Server error. Please ensure the backend is running on port 5000.";
+      } else if (error.message) {
         errorMessage += error.message;
       } else if (error instanceof Error) {
         errorMessage += error.message;
@@ -335,6 +358,8 @@ export default function Hotels() {
       toast.error(errorMessage);
     }
 
+    console.log("=== IMPORT PROCESS COMPLETE ===\n");
+    
     // Reset file input
     if (fileInputRef.current) {
       fileInputRef.current.value = "";

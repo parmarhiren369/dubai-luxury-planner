@@ -94,27 +94,42 @@ export function parseExcelFile<T>(file: File): Promise<T[]> {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: "array" });
-        const sheetName = workbook.SheetNames[0];
+        
+        // Use the first sheet or try to find a sheet with "Hotel" or "Hotels" in the name
+        let sheetName = workbook.SheetNames[0];
+        const hotelSheet = workbook.SheetNames.find(name => 
+          name.toLowerCase().includes('hotel') || 
+          name.toLowerCase().includes('data') ||
+          name.toLowerCase().includes('import')
+        );
+        if (hotelSheet) {
+          sheetName = hotelSheet;
+        }
+        
         const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json<any>(worksheet); // Parse as any first
+        const jsonData = XLSX.utils.sheet_to_json<any>(worksheet);
 
-        // Normalize keys (trim spaces, lowercase mapping if needed)
+        // Normalize keys - create a mapping of normalized keys to original keys
         const normalizedData = jsonData.map((row) => {
           const newRow: any = {};
           Object.keys(row).forEach((key) => {
-            const normalizedKey = key.trim(); // Only trim for now to match interface strictly but allow spaces
+            const normalizedKey = key.trim();
             newRow[normalizedKey] = row[key];
           });
           return newRow as T;
         });
 
+        console.log(`Parsed ${normalizedData.length} rows from Excel sheet "${sheetName}"`);
+        console.log("Available columns:", Object.keys(normalizedData[0] || {}));
+        
         resolve(normalizedData);
       } catch (error) {
-        reject(error);
+        console.error("Error parsing Excel file:", error);
+        reject(new Error("Failed to parse Excel file. Please ensure it's a valid .xlsx or .xls file."));
       }
     };
 
-    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onerror = () => reject(new Error("Failed to read file. Please check the file is not corrupted."));
     reader.readAsArrayBuffer(file);
   });
 }
@@ -130,8 +145,26 @@ export function downloadTemplate<T extends Record<string, any>>(
 }
 
 export function transformHotelImportData(data: any[]): Omit<Hotel, "id">[] {
+  if (!data || data.length === 0) {
+    console.warn("No data provided to transform");
+    return [];
+  }
+
+  console.log(`Transforming ${data.length} rows...`);
+
+  // Get all available column names for debugging
+  const availableColumns = Object.keys(data[0] || {});
+  console.log("Available columns:", availableColumns);
+
   return data
-    .filter(row => Object.keys(row).length > 0)
+    .filter((row, index) => {
+      // Skip empty rows
+      if (!row || Object.keys(row).length === 0) {
+        console.log(`Row ${index + 2}: Skipping empty row`);
+        return false;
+      }
+      return true;
+    })
     .map((row: any, index: number) => {
       // Helper to get value case-insensitively with multiple possible keys
       const getVal = (possibleKeys: string[]): any => {
@@ -148,9 +181,13 @@ export function transformHotelImportData(data: any[]): Omit<Hotel, "id">[] {
         return undefined;
       };
 
-      // Try multiple possible column name variations
-      const name = getVal(['name', 'hotel name', 'hotel', 'hotelname', 'hotel_name']);
-      if (!name) {
+      // Try multiple possible column name variations for hotel name
+      const name = getVal([
+        'name', 'hotel name', 'hotel', 'hotelname', 'hotel_name',
+        'hotel_name', 'property name', 'property', 'accommodation'
+      ]);
+      
+      if (!name || String(name).trim() === '') {
         console.warn(`Row ${index + 2}: Skipping - no hotel name found`);
         return null; // Skip invalid rows
       }
@@ -170,26 +207,66 @@ export function transformHotelImportData(data: any[]): Omit<Hotel, "id">[] {
 
       const hotel: Omit<Hotel, "id"> = {
         name: parseString(name),
-        category: parseString(getVal(['category', 'star', 'star rating', 'rating', 'hotel category', 'category/star']), ''),
-        location: parseString(getVal(['location', 'city', 'area', 'address', 'place']), ''),
+        category: parseString(getVal([
+          'category', 'star', 'star rating', 'rating', 'hotel category', 
+          'category/star', 'classification', 'type'
+        ]), ''),
+        location: parseString(getVal([
+          'location', 'city', 'area', 'address', 'place', 'destination', 'region'
+        ]), ''),
         
         // Room rates - try multiple column name variations
-        singleRoom: parseNumber(getVal(['singleroom', 'single room', 'single', 'sgl', '1br', '1 br', 'single room rate'])),
-        doubleRoom: parseNumber(getVal(['doubleroom', 'double room', 'double', 'dbl', '2br', '2 br', 'double room rate', 'twin'])),
-        tripleRoom: parseNumber(getVal(['tripleroom', 'triple room', 'triple', 'tpl', '3br', '3 br', 'triple room rate'])),
-        quadRoom: parseNumber(getVal(['quadroom', 'quad room', 'quad', 'quadruple', '4br', '4 br', 'quad room rate'])),
-        sixRoom: parseNumber(getVal(['sixroom', 'six room', '6br', '6 br', 'six room rate']), 0),
+        singleRoom: parseNumber(getVal([
+          'singleroom', 'single room', 'single', 'sgl', '1br', '1 br', 
+          'single room rate', 'sgl rate', 'single rate', '1 bed room'
+        ])),
+        doubleRoom: parseNumber(getVal([
+          'doubleroom', 'double room', 'double', 'dbl', '2br', '2 br', 
+          'double room rate', 'dbl rate', 'double rate', 'twin', 'twin room', '2 bed room'
+        ])),
+        tripleRoom: parseNumber(getVal([
+          'tripleroom', 'triple room', 'triple', 'tpl', '3br', '3 br', 
+          'triple room rate', 'tpl rate', 'triple rate', '3 bed room'
+        ])),
+        quadRoom: parseNumber(getVal([
+          'quadroom', 'quad room', 'quad', 'quadruple', '4br', '4 br', 
+          'quad room rate', 'quad rate', 'quadruple rate', '4 bed room'
+        ])),
+        sixRoom: parseNumber(getVal([
+          'sixroom', 'six room', '6br', '6 br', 'six room rate', 
+          'six rate', '6 bed room'
+        ]), 0),
         
         // Extra charges
-        extraBed: parseNumber(getVal(['extrabed', 'extra bed', 'extra bed > 11yrs', 'ex. bed > 11yrs', 'extra bed rate', 'ex bed'])),
-        childWithBed: parseNumber(getVal(['childwithbed', 'child with bed', 'cwb', 'cwb [3-11 yrs]', 'child w/ bed', 'child with bed rate'])),
-        childWithoutBed: parseNumber(getVal(['childwithoutbed', 'child without bed', 'cnb', 'child w/o bed', 'child without bed rate'])),
-        childWithoutBed3to5: parseNumber(getVal(['cnb 3-5', 'cnb [3-5 yrs]', 'child no bed 3-5', 'child without bed 3-5']), 0),
-        childWithoutBed5to11: parseNumber(getVal(['cnb 5-11', 'cnb [5-11 yrs]', 'child no bed 5-11', 'child without bed 5-11']), 0),
-        infant: parseNumber(getVal(['infant', 'infant rate', 'baby']), 0),
+        extraBed: parseNumber(getVal([
+          'extrabed', 'extra bed', 'extra bed > 11yrs', 'ex. bed > 11yrs', 
+          'extra bed rate', 'ex bed', 'extra bed charge', 'extra bed price'
+        ])),
+        childWithBed: parseNumber(getVal([
+          'childwithbed', 'child with bed', 'cwb', 'cwb [3-11 yrs]', 
+          'child w/ bed', 'child with bed rate', 'child with bed charge'
+        ])),
+        childWithoutBed: parseNumber(getVal([
+          'childwithoutbed', 'child without bed', 'cnb', 'child w/o bed', 
+          'child without bed rate', 'child without bed charge'
+        ])),
+        childWithoutBed3to5: parseNumber(getVal([
+          'cnb 3-5', 'cnb [3-5 yrs]', 'child no bed 3-5', 
+          'child without bed 3-5', 'cnb 3-5 yrs', 'child without bed 3 to 5'
+        ]), 0),
+        childWithoutBed5to11: parseNumber(getVal([
+          'cnb 5-11', 'cnb [5-11 yrs]', 'child no bed 5-11', 
+          'child without bed 5-11', 'cnb 5-11 yrs', 'child without bed 5 to 11'
+        ]), 0),
+        infant: parseNumber(getVal([
+          'infant', 'infant rate', 'baby', 'infant price', 'infant charge'
+        ]), 0),
         
         // Meal plan and status
-        mealPlan: parseString(getVal(['mealplan', 'meal plan', 'meal', 'board', 'board basis']), 'BB').toUpperCase(),
+        mealPlan: parseString(getVal([
+          'mealplan', 'meal plan', 'meal', 'board', 'board basis', 
+          'boardbasis', 'breakfast', 'meal basis'
+        ]), 'BB').toUpperCase(),
         status: getVal(['status', 'active', 'inactive']) === "inactive" ? "inactive" : "active",
       };
 
@@ -207,6 +284,8 @@ export function transformHotelImportData(data: any[]): Omit<Hotel, "id">[] {
         else if (mealPlanUpper.includes('ALL INCLUSIVE') || mealPlanUpper.includes('AI')) hotel.mealPlan = 'AI';
       }
 
+      console.log(`Row ${index + 2}: Parsed hotel "${hotel.name}" - Single: ${hotel.singleRoom}, Double: ${hotel.doubleRoom}`);
+      
       return hotel;
     })
     .filter((hotel): hotel is Omit<Hotel, "id"> => hotel !== null);
