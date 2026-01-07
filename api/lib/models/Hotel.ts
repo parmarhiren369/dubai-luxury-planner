@@ -64,4 +64,4 @@ HotelSchema.index({ name: 1 });
 HotelSchema.index({ location: 1 });
 HotelSchema.index({ status: 1 });
 
-export default mongoose.model<IHotel>('Hotel', HotelSchema);
+export default mongoose.models.Hotel || mongoose.model<IHotel>('Hotel', HotelSchema);

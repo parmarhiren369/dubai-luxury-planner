@@ -29,4 +29,4 @@ CustomerSchema.index({ phone: 1 });
 CustomerSchema.index({ passportNo: 1 });
 CustomerSchema.index({ status: 1 });
 
-export default mongoose.model<ICustomer>('Customer', CustomerSchema);
+export default mongoose.models.Customer || mongoose.model<ICustomer>('Customer', CustomerSchema);

@@ -26,4 +26,4 @@ MealSchema.index({ name: 1 });
 MealSchema.index({ type: 1 });
 MealSchema.index({ status: 1 });
 
-export default mongoose.model<IMeal>('Meal', MealSchema);
+export default mongoose.models.Meal || mongoose.model<IMeal>('Meal', MealSchema);

@@ -32,4 +32,4 @@ VisaSchema.index({ country: 1 });
 VisaSchema.index({ type: 1 });
 VisaSchema.index({ status: 1 });
 
-export default mongoose.model<IVisa>('Visa', VisaSchema);
+export default mongoose.models.Visa || mongoose.model<IVisa>('Visa', VisaSchema);

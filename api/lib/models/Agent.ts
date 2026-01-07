@@ -28,4 +28,4 @@ AgentSchema.index({ email: 1 });
 AgentSchema.index({ company: 1 });
 AgentSchema.index({ status: 1 });
 
-export default mongoose.model<IAgent>('Agent', AgentSchema);
+export default mongoose.models.Agent || mongoose.model<IAgent>('Agent', AgentSchema);

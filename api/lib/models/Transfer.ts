@@ -28,4 +28,4 @@ TransferSchema.index({ name: 1 });
 TransferSchema.index({ type: 1 });
 TransferSchema.index({ status: 1 });
 
-export default mongoose.model<ITransfer>('Transfer', TransferSchema);
+export default mongoose.models.Transfer || mongoose.model<ITransfer>('Transfer', TransferSchema);

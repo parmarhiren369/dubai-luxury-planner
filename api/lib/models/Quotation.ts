@@ -7,11 +7,11 @@ export interface IQuotationItem {
   unitPrice: number;
   total: number;
   details?: string;
-  referenceId?: string; // ID of the hotel, sightseeing, etc.
+  referenceId?: string;
 }
 
 export interface IQuotation extends Document {
-  quotationId: string; // Auto-generated like QT-2024-001
+  quotationId: string;
   customerId: mongoose.Types.ObjectId;
   customerName: string;
   agentId?: mongoose.Types.ObjectId;
@@ -89,4 +89,4 @@ QuotationSchema.pre('save', async function(next) {
   next();
 });
 
-export default mongoose.model<IQuotation>('Quotation', QuotationSchema);
+export default mongoose.models.Quotation || mongoose.model<IQuotation>('Quotation', QuotationSchema);
