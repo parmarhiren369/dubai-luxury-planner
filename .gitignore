@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 node_modules
 .pnp
 .pnp.js
@@ -38,6 +38,7 @@ lerna-debug.log*
 *.sln
 *.sw?
 *.swp
+*~
 
 # OS files
 .DS_Store
