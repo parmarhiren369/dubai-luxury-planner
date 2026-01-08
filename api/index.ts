@@ -695,6 +695,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   } catch (err: any) {
     console.error('API Error:', err);
-    return error(res, err.message || 'Internal server error', 500);
+    
+    // Provide more helpful error messages
+    let errorMessage = err.message || 'Internal server error';
+    
+    // Check for common issues
+    if (errorMessage.includes('MONGODB_URI')) {
+      errorMessage = 'Database not configured. Please set MONGODB_URI in Vercel Environment Variables.';
+    } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
+      errorMessage = 'Cannot connect to database. Check your MongoDB Atlas connection string.';
+    } else if (errorMessage.includes('authentication failed')) {
+      errorMessage = 'Database authentication failed. Check your MongoDB username and password.';
+    }
+    
+    return error(res, errorMessage, 500);
   }
 }
