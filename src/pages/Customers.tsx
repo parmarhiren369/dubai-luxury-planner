@@ -37,11 +37,20 @@ import {
   Phone,
   Globe,
 } from "lucide-react";
-import { Customer } from "@/lib/excelUtils";
+import { customersDb } from "@/lib/database";
 import { toast } from "sonner";
-import { customersApi } from "@/lib/api";
 
-// Mock data removed in favor of API integration
+interface Customer {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  nationality: string;
+  passportNo: string;
+  address: string;
+  status: "active" | "inactive";
+  createdAt: string;
+}
 
 const customerTemplate: Omit<Customer, "id" | "createdAt"> = {
   name: "",
@@ -55,36 +64,29 @@ const customerTemplate: Omit<Customer, "id" | "createdAt"> = {
 
 export default function Customers() {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState<Omit<Customer, "id" | "createdAt">>(customerTemplate);
 
-  const fetchCustomers = async () => {
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  const loadCustomers = async () => {
     try {
-      const data = await customersApi.getAll();
-      if (Array.isArray(data)) {
-        const transformed = data.map((c: any) => ({
-          ...c,
-          id: c._id || c.id,
-          createdAt: c.createdAt ? new Date(c.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-          nationality: c.nationality || "",
-          passportNo: c.passportNo || "",
-          address: c.address || "",
-          status: c.status || 'active'
-        }));
-        setCustomers(transformed);
-      }
+      setLoading(true);
+      const data = await customersDb.getAll();
+      setCustomers(data);
     } catch (error) {
       console.error("Failed to load customers:", error);
-      toast.error("Failed to load customers from server");
+      toast.error("Failed to load customers from database");
+    } finally {
+      setLoading(false);
     }
   };
-
-  useEffect(() => {
-    fetchCustomers();
-  }, []);
 
   const filteredCustomers = customers.filter((customer) => {
     const matchesSearch =
@@ -96,19 +98,29 @@ export default function Customers() {
   });
 
   const handleSubmit = async () => {
+    if (!formData.name.trim()) {
+      toast.error("Please enter a customer name");
+      return;
+    }
+
+    const loadingToast = toast.loading(editingCustomer ? "Updating customer..." : "Adding customer...");
+
     try {
       if (editingCustomer) {
-        await customersApi.update(editingCustomer.id, formData);
+        await customersDb.update(editingCustomer.id, formData);
+        toast.dismiss(loadingToast);
         toast.success("Customer updated successfully!");
       } else {
-        await customersApi.create(formData);
+        await customersDb.create(formData);
+        toast.dismiss(loadingToast);
         toast.success("Customer added successfully!");
       }
-      await fetchCustomers();
+      await loadCustomers();
       setIsDialogOpen(false);
       setFormData(customerTemplate);
       setEditingCustomer(null);
     } catch (error) {
+      toast.dismiss(loadingToast);
       console.error("Error saving customer:", error);
       toast.error("Failed to save customer");
     }
@@ -116,17 +128,30 @@ export default function Customers() {
 
   const handleEdit = (customer: Customer) => {
     setEditingCustomer(customer);
-    setFormData(customer);
+    setFormData({
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      nationality: customer.nationality,
+      passportNo: customer.passportNo,
+      address: customer.address,
+      status: customer.status,
+    });
     setIsDialogOpen(true);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this customer?")) return;
+    
+    const loadingToast = toast.loading("Deleting customer...");
+    
     try {
-      await customersApi.delete(id);
+      await customersDb.delete(id);
+      toast.dismiss(loadingToast);
       toast.success("Customer deleted successfully!");
-      fetchCustomers();
+      await loadCustomers();
     } catch (error) {
+      toast.dismiss(loadingToast);
       console.error("Error deleting customer:", error);
       toast.error("Failed to delete customer");
     }
@@ -188,7 +213,7 @@ export default function Customers() {
               </div>
               <div>
                 <p className="text-2xl font-bold">
-                  {new Set(customers.map((c) => c.nationality)).size}
+                  {new Set(customers.map((c) => c.nationality).filter(Boolean)).size}
                 </p>
                 <p className="text-sm text-muted-foreground">Nationalities</p>
               </div>
@@ -240,72 +265,88 @@ export default function Customers() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredCustomers.map((customer) => (
-                <TableRow key={customer.id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-semibold">
-                        {customer.name.split(" ").map((n) => n[0]).join("")}
-                      </div>
-                      <div>
-                        <p className="font-medium">{customer.name}</p>
-                        <p className="text-xs text-muted-foreground">{customer.address}</p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-1 text-sm">
-                        <Mail className="w-3 h-3 text-muted-foreground" />
-                        <span>{customer.email}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Phone className="w-3 h-3" />
-                        <span>{customer.phone}</span>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="bg-wtb-cyan/10 text-wtb-cyan border-wtb-cyan/20">
-                      {customer.nationality}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">{customer.passportNo}</TableCell>
-                  <TableCell className="text-muted-foreground">{customer.createdAt}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={
-                        customer.status === "active"
-                          ? "bg-wtb-success/10 text-wtb-success border-wtb-success/20"
-                          : "bg-muted text-muted-foreground"
-                      }
-                    >
-                      {customer.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
-                        onClick={() => handleEdit(customer)}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => handleDelete(customer.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    Loading customers...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : filteredCustomers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    No customers found. Add your first customer.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredCustomers.map((customer) => (
+                  <TableRow key={customer.id} className="hover:bg-muted/30 transition-colors">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-primary-foreground font-semibold">
+                          {customer.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                        </div>
+                        <div>
+                          <p className="font-medium">{customer.name}</p>
+                          <p className="text-xs text-muted-foreground">{customer.address}</p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1 text-sm">
+                          <Mail className="w-3 h-3 text-muted-foreground" />
+                          <span>{customer.email || '-'}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <Phone className="w-3 h-3" />
+                          <span>{customer.phone || '-'}</span>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {customer.nationality ? (
+                        <Badge variant="outline" className="bg-wtb-cyan/10 text-wtb-cyan border-wtb-cyan/20">
+                          {customer.nationality}
+                        </Badge>
+                      ) : '-'}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{customer.passportNo || '-'}</TableCell>
+                    <TableCell className="text-muted-foreground">{customer.createdAt}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={
+                          customer.status === "active"
+                            ? "bg-wtb-success/10 text-wtb-success border-wtb-success/20"
+                            : "bg-muted text-muted-foreground"
+                        }
+                      >
+                        {customer.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
+                          onClick={() => handleEdit(customer)}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => handleDelete(customer.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </div>
@@ -322,7 +363,7 @@ export default function Customers() {
 
           <div className="grid grid-cols-2 gap-4 py-4">
             <div className="col-span-2">
-              <Label htmlFor="name">Full Name</Label>
+              <Label htmlFor="name">Full Name *</Label>
               <Input
                 id="name"
                 value={formData.name}

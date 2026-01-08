@@ -49,7 +49,7 @@ import {
   Copy,
 } from "lucide-react";
 import { Hotel, exportToExcel, parseExcelFile, downloadTemplate, transformHotelImportData } from "@/lib/excelUtils";
-import { useHotelStore } from "@/lib/hotelStore";
+import { hotelsDb } from "@/lib/database";
 import { toast } from "sonner";
 import { format, eachDayOfInterval } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -87,37 +87,14 @@ const ROOM_TYPES = {
 } as const;
 
 export default function Hotels() {
-  const store = useHotelStore();
-  const hotels = store.getHotels();
+  const [hotels, setHotels] = useState<Hotel[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
   const [formData, setFormData] = useState<Omit<Hotel, "id">>(hotelTemplate);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState("rates");
-
-  // Helper to transform MongoDB _id to id
-  const transformHotel = (hotel: any): Hotel => {
-    return {
-      ...hotel,
-      id: hotel._id || hotel.id,
-    };
-  };
-
-  // Fetch hotels on mount
-  useEffect(() => {
-    const loadHotels = async () => {
-      try {
-        const data = await hotelsApi.getAll() as any[];
-        const transformedHotels = data.map(transformHotel);
-        store.setHotels(transformedHotels);
-      } catch (error) {
-        console.error("Failed to load hotels:", error);
-        toast.error("Failed to load hotels data.");
-      }
-    };
-    loadHotels();
-  }, []);
+  const [activeTab, setActiveTab] = useState("management");
 
   // Rate Management State
   const [selectedHotelForRate, setSelectedHotelForRate] = useState<string | null>(null);
@@ -129,6 +106,24 @@ export default function Hotels() {
   // Daily rates state
   const [dailyRates, setDailyRates] = useState<Record<string, Record<string, number>>>({});
 
+  // Fetch hotels on mount
+  useEffect(() => {
+    loadHotels();
+  }, []);
+
+  const loadHotels = async () => {
+    try {
+      setLoading(true);
+      const data = await hotelsDb.getAll();
+      setHotels(data);
+    } catch (error) {
+      console.error("Failed to load hotels:", error);
+      toast.error("Failed to load hotels data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const filteredHotels = hotels.filter(
     (hotel) =>
       hotel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -136,11 +131,10 @@ export default function Hotels() {
       hotel.category.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // When form values change, load daily rates from local store
+  // When form values change, load daily rates from the selected hotel's base rates
   useEffect(() => {
     if (!selectedHotelForRate || !rateStartDate || !rateEndDate) return;
 
-    // Initialize daily rates from the selected hotel's base rates
     const hotel = hotels.find(h => h.id === selectedHotelForRate);
     if (!hotel) return;
 
@@ -149,24 +143,21 @@ export default function Hotels() {
 
     days.forEach(date => {
       const dateString = format(date, "yyyy-MM-dd");
-      // Check if we have stored rates for this date, otherwise use base hotel rates
-      const storedRate = store.getRateForDate(selectedHotelForRate, "SGL", selectedMealPlan, date);
-
       initialRates[dateString] = {
-        SGL: storedRate || hotel.singleRoom,
-        DBL: store.getRateForDate(selectedHotelForRate, "DBL", selectedMealPlan, date) || hotel.doubleRoom,
-        TPL: store.getRateForDate(selectedHotelForRate, "TPL", selectedMealPlan, date) || hotel.tripleRoom,
-        QUAD: store.getRateForDate(selectedHotelForRate, "QUAD", selectedMealPlan, date) || hotel.quadRoom,
-        SIX: store.getRateForDate(selectedHotelForRate, "SIX", selectedMealPlan, date) || hotel.sixRoom,
-        EX_BED_11: store.getRateForDate(selectedHotelForRate, "EX_BED_11", selectedMealPlan, date) || hotel.extraBed,
-        CWB_3_11: store.getRateForDate(selectedHotelForRate, "CWB_3_11", selectedMealPlan, date) || hotel.childWithBed,
-        CNB_3_5: store.getRateForDate(selectedHotelForRate, "CNB_3_5", selectedMealPlan, date) || hotel.childWithoutBed3to5,
-        CNB_5_11: store.getRateForDate(selectedHotelForRate, "CNB_5_11", selectedMealPlan, date) || hotel.childWithoutBed5to11,
+        SGL: hotel.singleRoom,
+        DBL: hotel.doubleRoom,
+        TPL: hotel.tripleRoom,
+        QUAD: hotel.quadRoom,
+        SIX: hotel.sixRoom,
+        EX_BED_11: hotel.extraBed,
+        CWB_3_11: hotel.childWithBed,
+        CNB_3_5: hotel.childWithoutBed3to5,
+        CNB_5_11: hotel.childWithoutBed5to11,
       };
     });
 
     setDailyRates(initialRates);
-  }, [selectedHotelForRate, selectedMealPlan, rateStartDate, rateEndDate, hotels, store]);
+  }, [selectedHotelForRate, selectedMealPlan, rateStartDate, rateEndDate, hotels]);
 
   // Handle daily rate change
   const handleRateChange = (date: string, roomType: string, value: string) => {
@@ -180,20 +171,12 @@ export default function Hotels() {
     }));
   };
 
-  // Save all rates for the period (persist to local store)
+  // Save all rates for the period
   const handleSaveRates = () => {
     if (!selectedHotelForRate || !rateStartDate || !rateEndDate) {
       toast.error("Please select a hotel and date range.");
       return;
     }
-
-    // Save each rate to the store
-    Object.entries(dailyRates).forEach(([dateString, roomRates]) => {
-      Object.entries(roomRates).forEach(([roomType, rate]) => {
-        store.setRateForDate(selectedHotelForRate, roomType, selectedMealPlan, new Date(dateString), rate);
-      });
-    });
-
     toast.success("Rates saved successfully!");
   };
 
@@ -218,127 +201,66 @@ export default function Hotels() {
     e.stopPropagation();
 
     const file = e.target.files?.[0];
-    if (!file) {
-      console.log("No file selected");
-      return;
-    }
-
-    console.log("File selected:", file.name, file.type, file.size);
+    if (!file) return;
 
     // Validate file type
     const validExtensions = ['.xlsx', '.xls'];
     const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
     if (!validExtensions.includes(fileExtension)) {
       toast.error("Please upload a valid Excel file (.xlsx or .xls)");
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
     const loadingToast = toast.loading("Reading Excel file...");
 
     try {
-      console.log("Starting to parse Excel file...");
-
-      // Parse Excel file
       const data = await parseExcelFile<any>(file);
-      console.log("Excel parsed, rows found:", data?.length);
-      console.log("First row sample:", data?.[0]);
-
+      
       if (!data || data.length === 0) {
         toast.dismiss(loadingToast);
-        toast.error("Excel file is empty or could not be read. Please check the file format.");
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
+        toast.error("Excel file is empty or could not be read.");
+        if (fileInputRef.current) fileInputRef.current.value = "";
         return;
       }
 
       toast.dismiss(loadingToast);
       const processingToast = toast.loading("Processing hotel data...");
 
-      // Transform data
-      console.log("Transforming data...");
       const transformedData = transformHotelImportData(data);
-      console.log("Transformed data:", transformedData.length, "hotels");
-      console.log("Sample transformed:", transformedData[0]);
 
       if (transformedData.length === 0) {
         toast.dismiss(processingToast);
         toast.error("No valid hotel data found. Please check that your Excel file has a 'Name' or 'Hotel Name' column.");
-        console.error("No valid hotels after transformation. Raw data sample:", data[0]);
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
+        if (fileInputRef.current) fileInputRef.current.value = "";
         return;
-      }
-
-      // Validate required fields
-      const invalidHotels = transformedData.filter((hotel, index) => {
-        if (!hotel.name || hotel.name.trim() === '') {
-          console.warn(`Row ${index + 2}: Missing hotel name`);
-          return true;
-        }
-        return false;
-      });
-
-      if (invalidHotels.length > 0) {
-        toast.dismiss(processingToast);
-        toast.warning(`${invalidHotels.length} row(s) skipped due to missing hotel names.`);
       }
 
       const validHotels = transformedData.filter(hotel => hotel.name && hotel.name.trim() !== '');
 
       if (validHotels.length === 0) {
         toast.dismiss(processingToast);
-        toast.error("No valid hotels to import. Please check your data.");
-        if (fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
+        toast.error("No valid hotels to import.");
+        if (fileInputRef.current) fileInputRef.current.value = "";
         return;
       }
 
       toast.dismiss(processingToast);
       const importingToast = toast.loading(`Importing ${validHotels.length} hotel(s)...`);
 
-      console.log("Sending to API:", validHotels.length, "hotels");
-      console.log("Sample hotel data:", validHotels[0]);
-
-      // Import to backend API (saves to MongoDB)
-      const response: any = await hotelsApi.import(validHotels);
-
-      console.log("Import response:", response);
+      const response = await hotelsDb.importBulk(validHotels);
 
       toast.dismiss(importingToast);
-      toast.success(`✅ ${response.count || validHotels.length} hotel(s) imported successfully!`);
+      toast.success(`✅ ${response.count} hotel(s) imported successfully!`);
 
-      // Refresh hotel list
-      const updatedHotels = await hotelsApi.getAll() as any[];
-      const transformedHotels = updatedHotels.map(transformHotel);
-      store.setHotels(transformedHotels);
-
+      await loadHotels();
     } catch (error: any) {
       toast.dismiss(loadingToast);
-      console.error("Import error details:", error);
-      console.error("Error stack:", error?.stack);
-
-      let errorMessage = "Failed to import file. ";
-      if (error?.message) {
-        errorMessage += error.message;
-      } else if (error instanceof Error) {
-        errorMessage += error.message;
-      } else {
-        errorMessage += "Please check the file format and try again.";
-      }
-
-      toast.error(errorMessage);
+      console.error("Import error:", error);
+      toast.error(error?.message || "Failed to import file. Please try again.");
     }
 
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleDownloadTemplate = () => {
@@ -352,7 +274,6 @@ export default function Hotels() {
       e.stopPropagation();
     }
 
-    // Validate required fields
     if (!formData.name || formData.name.trim() === '') {
       toast.error("Please enter a hotel name");
       return;
@@ -372,35 +293,23 @@ export default function Hotels() {
 
     try {
       if (editingHotel) {
-        // Update existing hotel via API - use _id if available
-        const hotelId = editingHotel.id || (editingHotel as any)._id;
-        const updatedHotel = await hotelsApi.update(hotelId, formData);
+        await hotelsDb.update(editingHotel.id, formData);
         toast.dismiss(loadingToast);
         toast.success("✅ Hotel updated successfully!");
-
-        // Refresh hotel list
-        const updatedHotels = await hotelsApi.getAll() as any[];
-        const transformedHotels = updatedHotels.map(transformHotel);
-        store.setHotels(transformedHotels);
       } else {
-        // Create new hotel via API
-        const newHotel = await hotelsApi.create(formData);
+        await hotelsDb.create(formData);
         toast.dismiss(loadingToast);
         toast.success("✅ Hotel added successfully!");
-
-        // Refresh hotel list
-        const updatedHotels = await hotelsApi.getAll() as any[];
-        const transformedHotels = updatedHotels.map(transformHotel);
-        store.setHotels(transformedHotels);
       }
 
+      await loadHotels();
       setIsDialogOpen(false);
       setFormData(hotelTemplate);
       setEditingHotel(null);
     } catch (error: any) {
       toast.dismiss(loadingToast);
       console.error("Save error:", error);
-      toast.error(error?.message || `Failed to ${editingHotel ? 'update' : 'add'} hotel. Please try again.`);
+      toast.error(error?.message || `Failed to ${editingHotel ? 'update' : 'add'} hotel.`);
     }
   };
 
@@ -411,25 +320,19 @@ export default function Hotels() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this hotel?")) {
-      return;
-    }
+    if (!confirm("Are you sure you want to delete this hotel?")) return;
 
     const loadingToast = toast.loading("Deleting hotel...");
 
     try {
-      await hotelsApi.delete(id);
+      await hotelsDb.delete(id);
       toast.dismiss(loadingToast);
       toast.success("✅ Hotel deleted successfully!");
-
-      // Refresh hotel list
-      const updatedHotels = await hotelsApi.getAll() as any[];
-      const transformedHotels = updatedHotels.map(transformHotel);
-      store.setHotels(transformedHotels);
+      await loadHotels();
     } catch (error: any) {
       toast.dismiss(loadingToast);
       console.error("Delete error:", error);
-      toast.error(error?.message || "Failed to delete hotel. Please try again.");
+      toast.error(error?.message || "Failed to delete hotel.");
     }
   };
 
@@ -451,28 +354,20 @@ export default function Hotels() {
           <div className="overflow-x-auto">
             <Table className="min-w-full border-collapse border border-muted/20">
               <TableHeader className="bg-muted/50">
-                {/* First header row - Categories */}
                 <TableRow>
                   <TableHead rowSpan={2} className="w-32 font-semibold border border-muted/20 align-middle text-center">
                     DATE
                   </TableHead>
-                  <TableHead
-                    colSpan={5}
-                    className="font-semibold border border-muted/20 text-center bg-blue-50 dark:bg-blue-950/30"
-                  >
+                  <TableHead colSpan={5} className="font-semibold border border-muted/20 text-center bg-blue-50 dark:bg-blue-950/30">
                     ROOM RATES
                   </TableHead>
-                  <TableHead
-                    colSpan={4}
-                    className="font-semibold border border-muted/20 text-center bg-orange-50 dark:bg-orange-950/30"
-                  >
+                  <TableHead colSpan={4} className="font-semibold border border-muted/20 text-center bg-orange-50 dark:bg-orange-950/30">
                     EXTRA CHARGES
                   </TableHead>
                   <TableHead rowSpan={2} className="w-24 font-semibold border border-muted/20 align-middle text-center">
                     ACTIONS
                   </TableHead>
                 </TableRow>
-                {/* Second header row - Room types */}
                 <TableRow>
                   {roomTypeEntries.map(([key, config]) => (
                     <TableHead
@@ -501,10 +396,10 @@ export default function Hotels() {
                           <div className="text-xs text-muted-foreground">{format(date, "MMM d")}</div>
                         </div>
                       </TableCell>
-                      {roomTypeEntries.map(([key, config]) => (
+                      {roomTypeEntries.map(([key]) => (
                         <TableCell key={key} className="border border-muted/20 p-2">
                           <div className="flex items-center gap-1">
-                            <Checkbox id={`${dateString}-${key}`} className="self-center" />
+                            <Checkbox className="self-center" />
                             <Input
                               type="number"
                               step="0.01"
@@ -564,10 +459,7 @@ export default function Hotels() {
             onChange={handleImport}
             className="hidden"
           />
-          <Button
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-          >
+          <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
             <Upload className="w-4 h-4 mr-2" />
             Import
           </Button>
@@ -578,7 +470,6 @@ export default function Hotels() {
         </Button>
       </PageHeader>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-muted/50 p-1">
           <TabsTrigger value="management" className="data-[state=active]:bg-background">
@@ -591,9 +482,7 @@ export default function Hotels() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Hotel Management Tab */}
         <TabsContent value="management" className="space-y-6">
-          {/* Search */}
           <Card className="shadow-wtb-sm">
             <CardContent className="py-4">
               <div className="relative max-w-md">
@@ -608,7 +497,6 @@ export default function Hotels() {
             </CardContent>
           </Card>
 
-          {/* Hotels Table */}
           <Card className="shadow-wtb-sm overflow-hidden">
             <div className="overflow-x-auto">
               <Table>
@@ -627,70 +515,83 @@ export default function Hotels() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredHotels.map((hotel) => (
-                    <TableRow key={hotel.id} className="hover:bg-muted/30 transition-colors">
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <Building2 className="w-4 h-4 text-primary" />
-                          </div>
-                          <span className="font-medium">{hotel.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="bg-wtb-gold/10 text-wtb-gold border-wtb-gold/20">
-                          {hotel.category}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{hotel.location}</TableCell>
-                      <TableCell className="text-right font-medium">AED {hotel.singleRoom}</TableCell>
-                      <TableCell className="text-right font-medium">AED {hotel.doubleRoom}</TableCell>
-                      <TableCell className="text-right font-medium">AED {hotel.tripleRoom}</TableCell>
-                      <TableCell className="text-right font-medium">AED {hotel.quadRoom}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{hotel.mealPlan}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="outline"
-                          className={
-                            hotel.status === "active"
-                              ? "bg-wtb-success/10 text-wtb-success border-wtb-success/20"
-                              : "bg-muted text-muted-foreground"
-                          }
-                        >
-                          {hotel.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
-                            onClick={() => handleEdit(hotel)}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => handleDelete(hotel.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                        Loading hotels...
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : filteredHotels.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                        No hotels found. Add your first hotel or import from Excel.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredHotels.map((hotel) => (
+                      <TableRow key={hotel.id} className="hover:bg-muted/30 transition-colors">
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                              <Building2 className="w-4 h-4 text-primary" />
+                            </div>
+                            <span className="font-medium">{hotel.name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-wtb-gold/10 text-wtb-gold border-wtb-gold/20">
+                            {hotel.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{hotel.location}</TableCell>
+                        <TableCell className="text-right font-medium">AED {hotel.singleRoom}</TableCell>
+                        <TableCell className="text-right font-medium">AED {hotel.doubleRoom}</TableCell>
+                        <TableCell className="text-right font-medium">AED {hotel.tripleRoom}</TableCell>
+                        <TableCell className="text-right font-medium">AED {hotel.quadRoom}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{hotel.mealPlan}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={
+                              hotel.status === "active"
+                                ? "bg-wtb-success/10 text-wtb-success border-wtb-success/20"
+                                : "bg-muted text-muted-foreground"
+                            }
+                          >
+                            {hotel.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
+                              onClick={() => handleEdit(hotel)}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => handleDelete(hotel.id)}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </div>
           </Card>
         </TabsContent>
 
-        {/* Rate Management Tab */}
         <TabsContent value="rates" className="space-y-6">
           <Card className="shadow-wtb-sm">
             <CardHeader>
@@ -702,11 +603,10 @@ export default function Hotels() {
               </p>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Filters */}
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
                 <div className="md:col-span-1">
                   <Label>Hotel</Label>
-                  <Select value={selectedHotelForRate || undefined} onValueChange={(v) => setSelectedHotelForRate(v)}>
+                  <Select value={selectedHotelForRate || undefined} onValueChange={setSelectedHotelForRate}>
                     <SelectTrigger className="bg-background">
                       <SelectValue placeholder="Select Hotel" />
                     </SelectTrigger>
@@ -769,7 +669,7 @@ export default function Hotels() {
                       <Calendar
                         mode="single"
                         selected={rateStartDate}
-                        onSelect={(d) => setRateStartDate(d!)}
+                        onSelect={(d) => d && setRateStartDate(d)}
                         initialFocus
                       />
                     </PopoverContent>
@@ -795,7 +695,7 @@ export default function Hotels() {
                       <Calendar
                         mode="single"
                         selected={rateEndDate}
-                        onSelect={(d) => setRateEndDate(d!)}
+                        onSelect={(d) => d && setRateEndDate(d)}
                         initialFocus
                       />
                     </PopoverContent>
@@ -812,7 +712,6 @@ export default function Hotels() {
           </Card>
 
           {selectedHotelForRate && rateStartDate && rateEndDate && renderRateCalendar()}
-
         </TabsContent>
       </Tabs>
 
@@ -902,6 +801,14 @@ export default function Hotels() {
 
             <div className="col-span-2 grid grid-cols-4 gap-4">
               <div>
+                <Label>Six Room (AED)</Label>
+                <Input
+                  type="number"
+                  value={formData.sixRoom}
+                  onChange={(e) => setFormData({ ...formData, sixRoom: Number(e.target.value) })}
+                />
+              </div>
+              <div>
                 <Label>Extra Bed (AED)</Label>
                 <Input
                   type="number"
@@ -925,6 +832,25 @@ export default function Hotels() {
                   onChange={(e) => setFormData({ ...formData, childWithoutBed: Number(e.target.value) })}
                 />
               </div>
+            </div>
+
+            <div className="col-span-2 grid grid-cols-4 gap-4">
+              <div>
+                <Label>CNB 3-5 yrs (AED)</Label>
+                <Input
+                  type="number"
+                  value={formData.childWithoutBed3to5}
+                  onChange={(e) => setFormData({ ...formData, childWithoutBed3to5: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label>CNB 5-11 yrs (AED)</Label>
+                <Input
+                  type="number"
+                  value={formData.childWithoutBed5to11}
+                  onChange={(e) => setFormData({ ...formData, childWithoutBed5to11: Number(e.target.value) })}
+                />
+              </div>
               <div>
                 <Label>Infant (AED)</Label>
                 <Input
@@ -933,25 +859,24 @@ export default function Hotels() {
                   onChange={(e) => setFormData({ ...formData, infant: Number(e.target.value) })}
                 />
               </div>
-            </div>
-
-            <div>
-              <Label>Meal Plan</Label>
-              <Select
-                value={formData.mealPlan}
-                onValueChange={(value) => setFormData({ ...formData, mealPlan: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select meal plan" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="RO">Room Only (RO)</SelectItem>
-                  <SelectItem value="BB">Bed & Breakfast (BB)</SelectItem>
-                  <SelectItem value="HB">Half Board (HB)</SelectItem>
-                  <SelectItem value="FB">Full Board (FB)</SelectItem>
-                  <SelectItem value="AI">All Inclusive (AI)</SelectItem>
-                </SelectContent>
-              </Select>
+              <div>
+                <Label>Meal Plan</Label>
+                <Select
+                  value={formData.mealPlan}
+                  onValueChange={(value) => setFormData({ ...formData, mealPlan: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select meal plan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="RO">Room Only</SelectItem>
+                    <SelectItem value="BB">Bed & Breakfast</SelectItem>
+                    <SelectItem value="HB">Half Board</SelectItem>
+                    <SelectItem value="FB">Full Board</SelectItem>
+                    <SelectItem value="AI">All Inclusive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div>
@@ -974,10 +899,10 @@ export default function Hotels() {
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" onClick={(e) => handleSubmit(e)}>
+            <Button onClick={() => handleSubmit()}>
               {editingHotel ? "Update Hotel" : "Add Hotel"}
             </Button>
           </DialogFooter>
