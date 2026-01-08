@@ -37,7 +37,7 @@ import {
   Phone,
   Globe,
 } from "lucide-react";
-import { customersDb } from "@/lib/database";
+import { customersApi } from "@/lib/api";
 import { toast } from "sonner";
 
 interface Customer {
@@ -78,11 +78,11 @@ export default function Customers() {
   const loadCustomers = async () => {
     try {
       setLoading(true);
-      const data = await customersDb.getAll();
+      const data = await customersApi.getAll() as Customer[];
       setCustomers(data);
     } catch (error) {
       console.error("Failed to load customers:", error);
-      toast.error("Failed to load customers from database");
+      toast.error("Failed to load customers");
     } finally {
       setLoading(false);
     }
@@ -107,11 +107,11 @@ export default function Customers() {
 
     try {
       if (editingCustomer) {
-        await customersDb.update(editingCustomer.id, formData);
+        await customersApi.update(editingCustomer.id, formData);
         toast.dismiss(loadingToast);
         toast.success("Customer updated successfully!");
       } else {
-        await customersDb.create(formData);
+        await customersApi.create(formData);
         toast.dismiss(loadingToast);
         toast.success("Customer added successfully!");
       }
@@ -146,7 +146,7 @@ export default function Customers() {
     const loadingToast = toast.loading("Deleting customer...");
     
     try {
-      await customersDb.delete(id);
+      await customersApi.delete(id);
       toast.dismiss(loadingToast);
       toast.success("Customer deleted successfully!");
       await loadCustomers();

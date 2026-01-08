@@ -49,7 +49,7 @@ import {
   Copy,
 } from "lucide-react";
 import { Hotel, exportToExcel, parseExcelFile, downloadTemplate, transformHotelImportData } from "@/lib/excelUtils";
-import { hotelsDb } from "@/lib/database";
+import { hotelsApi } from "@/lib/api";
 import { toast } from "sonner";
 import { format, eachDayOfInterval } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -114,7 +114,7 @@ export default function Hotels() {
   const loadHotels = async () => {
     try {
       setLoading(true);
-      const data = await hotelsDb.getAll();
+      const data = await hotelsApi.getAll() as Hotel[];
       setHotels(data);
     } catch (error) {
       console.error("Failed to load hotels:", error);
@@ -248,7 +248,7 @@ export default function Hotels() {
       toast.dismiss(processingToast);
       const importingToast = toast.loading(`Importing ${validHotels.length} hotel(s)...`);
 
-      const response = await hotelsDb.importBulk(validHotels);
+      const response = await hotelsApi.import(validHotels) as { count: number };
 
       toast.dismiss(importingToast);
       toast.success(`✅ ${response.count} hotel(s) imported successfully!`);
@@ -293,11 +293,11 @@ export default function Hotels() {
 
     try {
       if (editingHotel) {
-        await hotelsDb.update(editingHotel.id, formData);
+        await hotelsApi.update(editingHotel.id, formData);
         toast.dismiss(loadingToast);
         toast.success("✅ Hotel updated successfully!");
       } else {
-        await hotelsDb.create(formData);
+        await hotelsApi.create(formData);
         toast.dismiss(loadingToast);
         toast.success("✅ Hotel added successfully!");
       }
@@ -325,7 +325,7 @@ export default function Hotels() {
     const loadingToast = toast.loading("Deleting hotel...");
 
     try {
-      await hotelsDb.delete(id);
+      await hotelsApi.delete(id);
       toast.dismiss(loadingToast);
       toast.success("✅ Hotel deleted successfully!");
       await loadHotels();
