@@ -24,20 +24,16 @@ const TransferSchema = new Schema<ITransfer>({
   timestamps: true,
   toJSON: {
     virtuals: true,
-    transform: function(doc, ret) {
-      ret.id = ret._id.toString();
-      delete ret._id;
-      delete ret.__v;
-      return ret;
+    transform: function(_doc, ret) {
+      const { _id, __v, ...rest } = ret;
+      return { id: _id.toString(), ...rest };
     }
   },
   toObject: {
     virtuals: true,
-    transform: function(doc, ret) {
-      ret.id = ret._id.toString();
-      delete ret._id;
-      delete ret.__v;
-      return ret;
+    transform: function(_doc, ret) {
+      const { _id, __v, ...rest } = ret;
+      return { id: _id.toString(), ...rest };
     }
   }
 });
