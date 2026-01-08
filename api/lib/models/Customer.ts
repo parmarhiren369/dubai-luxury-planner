@@ -21,7 +21,25 @@ const CustomerSchema = new Schema<ICustomer>({
   address: { type: String, required: false },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform: function(doc, ret) {
+      ret.id = ret._id.toString();
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  },
+  toObject: {
+    virtuals: true,
+    transform: function(doc, ret) {
+      ret.id = ret._id.toString();
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  }
 });
 
 CustomerSchema.index({ email: 1 });

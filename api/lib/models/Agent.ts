@@ -21,7 +21,25 @@ const AgentSchema = new Schema<IAgent>({
   commission: { type: Number, default: 10, min: 0, max: 100 },
   status: { type: String, enum: ['active', 'inactive'], default: 'active' }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform: function(doc, ret) {
+      ret.id = ret._id.toString();
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  },
+  toObject: {
+    virtuals: true,
+    transform: function(doc, ret) {
+      ret.id = ret._id.toString();
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  }
 });
 
 AgentSchema.index({ email: 1 });

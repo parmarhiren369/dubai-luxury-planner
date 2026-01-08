@@ -69,7 +69,25 @@ const QuotationSchema = new Schema<IQuotation>({
   notes: String,
   status: { type: String, enum: ['draft', 'sent', 'confirmed', 'cancelled'], default: 'draft' }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform: function(doc, ret) {
+      ret.id = ret._id.toString();
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  },
+  toObject: {
+    virtuals: true,
+    transform: function(doc, ret) {
+      ret.id = ret._id.toString();
+      delete ret._id;
+      delete ret.__v;
+      return ret;
+    }
+  }
 });
 
 QuotationSchema.index({ quotationId: 1 });
