@@ -1,913 +1,335 @@
-import { useState, useRef, useEffect } from "react";
-import { PageHeader } from "@/components/ui/PageHeader";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Download,
-  Upload,
-  Plus,
-  Search,
-  Pencil,
-  Trash2,
-  Building2,
-  FileSpreadsheet,
-  CalendarIcon,
-  Settings2,
-  Copy,
-} from "lucide-react";
-import { Hotel, exportToExcel, parseExcelFile, downloadTemplate, transformHotelImportData } from "@/lib/excelUtils";
-import { hotelsApi } from "@/lib/api";
-import { toast } from "sonner";
-import { format, eachDayOfInterval } from "date-fns";
-import { cn } from "@/lib/utils";
+import React, { useState, useEffect } from 'react';
+import { Plus, Edit2, Trash2, Calendar, DollarSign } from 'lucide-react';
+import { Hotel } from '../types';
+import { supabase } from '../lib/supabase';
 
-const hotelTemplate: Omit<Hotel, "id"> = {
-  name: "Example Hotel Name",
-  category: "5 Star",
-  location: "Dubai",
-  singleRoom: 1000,
-  doubleRoom: 1500,
-  tripleRoom: 2000,
-  quadRoom: 2500,
-  sixRoom: 3000,
-  extraBed: 200,
-  childWithBed: 150,
-  childWithoutBed: 100,
-  childWithoutBed3to5: 80,
-  childWithoutBed5to11: 100,
-  infant: 0,
-  mealPlan: "BB",
-  status: "active",
-};
-
-// Room type definitions matching the reference image
-const ROOM_TYPES = {
-  SGL: { key: 'singleRoom', label: 'SGL', category: 'ROOM RATES' },
-  DBL: { key: 'doubleRoom', label: 'DBL', category: 'ROOM RATES' },
-  TPL: { key: 'tripleRoom', label: 'TPL', category: 'ROOM RATES' },
-  QUAD: { key: 'quadRoom', label: 'QUAD', category: 'ROOM RATES' },
-  SIX: { key: 'sixRoom', label: 'SIX', category: 'ROOM RATES' },
-  EX_BED_11: { key: 'extraBed', label: 'EX. BED > 11YRS', category: 'EXTRA CHARGES' },
-  CWB_3_11: { key: 'childWithBed', label: 'CWB [3-11 YRS]', category: 'EXTRA CHARGES' },
-  CNB_3_5: { key: 'childWithoutBed3to5', label: 'CNB [3-5 YRS]', category: 'EXTRA CHARGES' },
-  CNB_5_11: { key: 'childWithoutBed5to11', label: 'CNB [5-11 YRS]', category: 'EXTRA CHARGES' },
-} as const;
+interface DailyRate {
+  date: string;
+  rate: number;
+}
 
 export default function Hotels() {
   const [hotels, setHotels] = useState<Hotel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [formData, setFormData] = useState({ name: '', location: '', baseRate: '' });
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
-  const [formData, setFormData] = useState<Omit<Hotel, "id">>(hotelTemplate);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [activeTab, setActiveTab] = useState("management");
+  const [selectedHotelForRate, setSelectedHotelForRate] = useState<Hotel | null>(null);
+  const [dailyRates, setDailyRates] = useState<DailyRate[]>([]);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  // Rate Management State
-  const [selectedHotelForRate, setSelectedHotelForRate] = useState<string | null>(null);
-  const [selectedRoomTypeForRate, setSelectedRoomTypeForRate] = useState<string>("2 BR");
-  const [selectedMealPlan, setSelectedMealPlan] = useState("Room Only");
-  const [rateStartDate, setRateStartDate] = useState<Date>(new Date("2026-01-05"));
-  const [rateEndDate, setRateEndDate] = useState<Date>(new Date("2026-01-30"));
-
-  // Daily rates state
-  const [dailyRates, setDailyRates] = useState<Record<string, Record<string, number>>>({});
-
-  // Fetch hotels on mount
   useEffect(() => {
-    loadHotels();
+    fetchHotels();
   }, []);
 
-  const loadHotels = async () => {
+  async function fetchHotels() {
     try {
-      setLoading(true);
-      const data = await hotelsApi.getAll() as Hotel[];
-      setHotels(data);
+      const { data, error } = await supabase
+        .from('hotels')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setHotels(data || []);
     } catch (error) {
-      console.error("Failed to load hotels:", error);
-      toast.error("Failed to load hotels data.");
+      console.error('Error fetching hotels:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const filteredHotels = hotels.filter(
-    (hotel) =>
-      hotel.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      hotel.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      hotel.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // When form values change, load daily rates from the selected hotel's base rates
-  useEffect(() => {
-    if (!selectedHotelForRate || !rateStartDate || !rateEndDate) return;
-
-    const hotel = hotels.find(h => h.id === selectedHotelForRate);
-    if (!hotel) return;
-
-    const days = eachDayOfInterval({ start: rateStartDate, end: rateEndDate });
-    const initialRates: Record<string, Record<string, number>> = {};
-
-    days.forEach(date => {
-      const dateString = format(date, "yyyy-MM-dd");
-      initialRates[dateString] = {
-        SGL: hotel.singleRoom,
-        DBL: hotel.doubleRoom,
-        TPL: hotel.tripleRoom,
-        QUAD: hotel.quadRoom,
-        SIX: hotel.sixRoom,
-        EX_BED_11: hotel.extraBed,
-        CWB_3_11: hotel.childWithBed,
-        CNB_3_5: hotel.childWithoutBed3to5,
-        CNB_5_11: hotel.childWithoutBed5to11,
-      };
-    });
-
-    setDailyRates(initialRates);
-  }, [selectedHotelForRate, selectedMealPlan, rateStartDate, rateEndDate, hotels]);
-
-  // Handle daily rate change
-  const handleRateChange = (date: string, roomType: string, value: string) => {
-    const rate = parseFloat(value) || 0;
-    setDailyRates(prev => ({
-      ...prev,
-      [date]: {
-        ...prev[date],
-        [roomType]: rate,
-      },
-    }));
-  };
-
-  // Save all rates for the period
-  const handleSaveRates = () => {
-    if (!selectedHotelForRate || !rateStartDate || !rateEndDate) {
-      toast.error("Please select a hotel and date range.");
-      return;
-    }
-    toast.success("Rates saved successfully!");
-  };
-
-  // Copy rate to all visible dates
-  const handleCopyToAll = (roomType: string, rate: number) => {
-    const newDailyRates = { ...dailyRates };
-    Object.keys(newDailyRates).forEach(date => {
-      newDailyRates[date][roomType] = rate;
-    });
-    setDailyRates(newDailyRates);
-    toast.info(`Copied rate for ${roomType} to all dates.`);
-  };
-
-  const handleExport = () => {
-    const exportData = hotels.map(({ id, ...rest }) => rest);
-    exportToExcel(exportData, "WTB_Hotels_Pricing", "Hotels");
-    toast.success("Hotels data exported successfully!");
-  };
-
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    e.stopPropagation();
-
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    const validExtensions = ['.xlsx', '.xls'];
-    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-    if (!validExtensions.includes(fileExtension)) {
-      toast.error("Please upload a valid Excel file (.xlsx or .xls)");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
-    const loadingToast = toast.loading("Reading Excel file...");
-
-    try {
-      const data = await parseExcelFile<any>(file);
-      
-      if (!data || data.length === 0) {
-        toast.dismiss(loadingToast);
-        toast.error("Excel file is empty or could not be read.");
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      }
-
-      toast.dismiss(loadingToast);
-      const processingToast = toast.loading("Processing hotel data...");
-
-      const transformedData = transformHotelImportData(data);
-
-      if (transformedData.length === 0) {
-        toast.dismiss(processingToast);
-        toast.error("No valid hotel data found. Please check that your Excel file has a 'Name' or 'Hotel Name' column.");
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      }
-
-      const validHotels = transformedData.filter(hotel => hotel.name && hotel.name.trim() !== '');
-
-      if (validHotels.length === 0) {
-        toast.dismiss(processingToast);
-        toast.error("No valid hotels to import.");
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
-      }
-
-      toast.dismiss(processingToast);
-      const importingToast = toast.loading(`Importing ${validHotels.length} hotel(s)...`);
-
-      const response = await hotelsApi.import(validHotels) as { count: number };
-
-      toast.dismiss(importingToast);
-      toast.success(`✅ ${response.count} hotel(s) imported successfully!`);
-
-      await loadHotels();
-    } catch (error: any) {
-      toast.dismiss(loadingToast);
-      console.error("Import error:", error);
-      toast.error(error?.message || "Failed to import file. Please try again.");
-    }
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const handleDownloadTemplate = () => {
-    downloadTemplate(hotelTemplate, "hotels");
-    toast.success("Template downloaded!");
-  };
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-
-    if (!formData.name || formData.name.trim() === '') {
-      toast.error("Please enter a hotel name");
-      return;
-    }
-
-    if (!formData.category || formData.category.trim() === '') {
-      toast.error("Please select a category");
-      return;
-    }
-
-    if (!formData.location || formData.location.trim() === '') {
-      toast.error("Please enter a location");
-      return;
-    }
-
-    const loadingToast = toast.loading(editingHotel ? "Updating hotel..." : "Adding hotel...");
+    if (!formData.name || !formData.location || !formData.baseRate) return;
 
     try {
       if (editingHotel) {
-        await hotelsApi.update(editingHotel.id, formData);
-        toast.dismiss(loadingToast);
-        toast.success("✅ Hotel updated successfully!");
+        const { error } = await supabase
+          .from('hotels')
+          .update({
+            name: formData.name,
+            location: formData.location,
+            base_rate: parseFloat(formData.baseRate),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingHotel.id);
+
+        if (error) throw error;
       } else {
-        await hotelsApi.create(formData);
-        toast.dismiss(loadingToast);
-        toast.success("✅ Hotel added successfully!");
+        const { error } = await supabase
+          .from('hotels')
+          .insert([
+            {
+              name: formData.name,
+              location: formData.location,
+              base_rate: parseFloat(formData.baseRate),
+            },
+          ]);
+
+        if (error) throw error;
       }
 
-      await loadHotels();
-      setIsDialogOpen(false);
-      setFormData(hotelTemplate);
+      setFormData({ name: '', location: '', baseRate: '' });
       setEditingHotel(null);
-    } catch (error: any) {
-      toast.dismiss(loadingToast);
-      console.error("Save error:", error);
-      toast.error(error?.message || `Failed to ${editingHotel ? 'update' : 'add'} hotel.`);
+      setSelectedHotelForRate(null);
+      setDailyRates([]);
+      setStartDate('');
+      setEndDate('');
+      fetchHotels();
+    } catch (error) {
+      console.error('Error saving hotel:', error);
     }
-  };
+  }
 
-  const handleEdit = (hotel: Hotel) => {
+  function handleEdit(hotel: Hotel) {
     setEditingHotel(hotel);
-    setFormData(hotel);
-    setIsDialogOpen(true);
-  };
+    setFormData({
+      name: hotel.name,
+      location: hotel.location,
+      baseRate: hotel.base_rate.toString(),
+    });
+  }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this hotel?")) return;
+  async function handleDelete(id: string) {
+    try {
+      const { error } = await supabase
+        .from('hotels')
+        .delete()
+        .eq('id', id);
 
-    const loadingToast = toast.loading("Deleting hotel...");
+      if (error) throw error;
+      fetchHotels();
+    } catch (error) {
+      console.error('Error deleting hotel:', error);
+    }
+  }
+
+  function handleAddRate() {
+    if (!startDate || !endDate) return;
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const newRates: DailyRate[] = [];
+
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      newRates.push({
+        date: d.toISOString().split('T')[0],
+        rate: selectedHotelForRate?.base_rate || 0,
+      });
+    }
+
+    setDailyRates([...dailyRates, ...newRates]);
+    setStartDate('');
+    setEndDate('');
+  }
+
+  function handleUpdateRate(index: number, newRate: number) {
+    const updated = [...dailyRates];
+    updated[index].rate = newRate;
+    setDailyRates(updated);
+  }
+
+  function handleRemoveRate(index: number) {
+    setDailyRates(dailyRates.filter((_, i) => i !== index));
+  }
+
+  async function handleSaveRates() {
+    if (!selectedHotelForRate || dailyRates.length === 0) return;
 
     try {
-      await hotelsApi.delete(id);
-      toast.dismiss(loadingToast);
-      toast.success("✅ Hotel deleted successfully!");
-      await loadHotels();
-    } catch (error: any) {
-      toast.dismiss(loadingToast);
-      console.error("Delete error:", error);
-      toast.error(error?.message || "Failed to delete hotel.");
+      const { error } = await supabase
+        .from('daily_rates')
+        .insert(
+          dailyRates.map((rate) => ({
+            hotel_id: selectedHotelForRate.id,
+            date: rate.date,
+            rate: rate.rate,
+          }))
+        );
+
+      if (error) throw error;
+      setSelectedHotelForRate(null);
+      setDailyRates([]);
+      setStartDate('');
+      setEndDate('');
+      fetchHotels();
+    } catch (error) {
+      console.error('Error saving rates:', error);
     }
-  };
+  }
 
-  const openAddDialog = () => {
-    setEditingHotel(null);
-    setFormData(hotelTemplate);
-    setIsDialogOpen(true);
-  };
-
-  const renderRateCalendar = () => {
-    if (!rateStartDate || !rateEndDate) return null;
-
-    const days = eachDayOfInterval({ start: rateStartDate, end: rateEndDate });
-    const roomTypeEntries = Object.entries(ROOM_TYPES);
-
-    return (
-      <Card className="shadow-wtb-sm">
-        <CardContent className="pt-6">
-          <div className="overflow-x-auto">
-            <Table className="min-w-full border-collapse border border-muted/20">
-              <TableHeader className="bg-muted/50">
-                <TableRow>
-                  <TableHead rowSpan={2} className="w-32 font-semibold border border-muted/20 align-middle text-center">
-                    DATE
-                  </TableHead>
-                  <TableHead colSpan={5} className="font-semibold border border-muted/20 text-center bg-blue-50 dark:bg-blue-950/30">
-                    ROOM RATES
-                  </TableHead>
-                  <TableHead colSpan={4} className="font-semibold border border-muted/20 text-center bg-orange-50 dark:bg-orange-950/30">
-                    EXTRA CHARGES
-                  </TableHead>
-                  <TableHead rowSpan={2} className="w-24 font-semibold border border-muted/20 align-middle text-center">
-                    ACTIONS
-                  </TableHead>
-                </TableRow>
-                <TableRow>
-                  {roomTypeEntries.map(([key, config]) => (
-                    <TableHead
-                      key={key}
-                      className={cn(
-                        "w-28 font-semibold border border-muted/20 text-center text-xs",
-                        config.category === 'ROOM RATES' ? "bg-blue-50/50 dark:bg-blue-950/20" : "bg-orange-50/50 dark:bg-orange-950/20"
-                      )}
-                    >
-                      {config.label}
-                      <div className="text-xs font-normal text-muted-foreground">N/A</div>
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {days.map(date => {
-                  const dateString = format(date, "yyyy-MM-dd");
-                  const dayRates = dailyRates[dateString] || {};
-
-                  return (
-                    <TableRow key={dateString} className="hover:bg-muted/20">
-                      <TableCell className="font-medium border border-muted/20">
-                        <div className="flex flex-col items-center gap-1">
-                          <div className="text-sm font-semibold">{format(date, "E")}</div>
-                          <div className="text-xs text-muted-foreground">{format(date, "MMM d")}</div>
-                        </div>
-                      </TableCell>
-                      {roomTypeEntries.map(([key]) => (
-                        <TableCell key={key} className="border border-muted/20 p-2">
-                          <div className="flex items-center gap-1">
-                            <Checkbox className="self-center" />
-                            <Input
-                              type="number"
-                              step="0.01"
-                              className="w-20 text-center h-8 text-sm"
-                              value={dayRates[key] || "0.00"}
-                              onChange={e => handleRateChange(dateString, key, e.target.value)}
-                              onFocus={e => e.target.select()}
-                              placeholder="0.00"
-                            />
-                          </div>
-                        </TableCell>
-                      ))}
-                      <TableCell className="border border-muted/20 text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs h-7 px-2"
-                          onClick={() => {
-                            const firstRoomType = roomTypeEntries[0][0];
-                            handleCopyToAll(firstRoomType, dayRates[firstRoomType] || 0);
-                          }}
-                        >
-                          <Copy className="w-3 h-3 mr-1" />
-                          Copy to All
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
+  if (loading) {
+    return <div className="flex justify-center items-center h-screen">Loading...</div>;
+  }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <PageHeader
-        title="Hotels"
-        subtitle="Manage hotel pricing and room configurations"
-      >
-        <Button variant="outline" onClick={handleDownloadTemplate}>
-          <FileSpreadsheet className="w-4 h-4 mr-2" />
-          Template
-        </Button>
-        <Button variant="outline" onClick={handleExport}>
-          <Download className="w-4 h-4 mr-2" />
-          Export
-        </Button>
-        <div className="relative">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={handleImport}
-            className="hidden"
-          />
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-            <Upload className="w-4 h-4 mr-2" />
-            Import
-          </Button>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
+      <div className="max-w-7xl mx-auto">
+        <h1 className="text-4xl font-bold text-gray-800 mb-8">Hotel Management</h1>
+
+        {/* Add/Edit Hotel Form */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
+          <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+            {editingHotel ? 'Edit Hotel' : 'Add New Hotel'}
+          </h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <input
+              type="text"
+              placeholder="Hotel Name"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="text"
+              placeholder="Location"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="number"
+              placeholder="Base Rate (AED)"
+              value={formData.baseRate}
+              onChange={(e) => setFormData({ ...formData, baseRate: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition"
+            >
+              <Plus size={20} />
+              {editingHotel ? 'Update Hotel' : 'Add Hotel'}
+            </button>
+            {editingHotel && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingHotel(null);
+                  setFormData({ name: '', location: '', baseRate: '' });
+                }}
+                className="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded-lg transition"
+              >
+                Cancel
+              </button>
+            )}
+          </form>
         </div>
-        <Button onClick={openAddDialog}>
-          <Plus className="w-4 h-4 mr-2" />
-          Add Hotel
-        </Button>
-      </PageHeader>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="bg-muted/50 p-1">
-          <TabsTrigger value="management" className="data-[state=active]:bg-background">
-            <Building2 className="w-4 h-4 mr-2" />
-            Hotel Management
-          </TabsTrigger>
-          <TabsTrigger value="rates" className="data-[state=active]:bg-background">
-            <Settings2 className="w-4 h-4 mr-2" />
-            Rate Management
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="management" className="space-y-6">
-          <Card className="shadow-wtb-sm">
-            <CardContent className="py-4">
-              <div className="relative max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search hotels..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-wtb-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead className="font-semibold">Hotel Name</TableHead>
-                    <TableHead className="font-semibold">Category</TableHead>
-                    <TableHead className="font-semibold">Location</TableHead>
-                    <TableHead className="font-semibold text-right">Single</TableHead>
-                    <TableHead className="font-semibold text-right">Double</TableHead>
-                    <TableHead className="font-semibold text-right">Triple</TableHead>
-                    <TableHead className="font-semibold text-right">Quad</TableHead>
-                    <TableHead className="font-semibold">Meal</TableHead>
-                    <TableHead className="font-semibold">Status</TableHead>
-                    <TableHead className="font-semibold text-center">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                        Loading hotels...
-                      </TableCell>
-                    </TableRow>
-                  ) : filteredHotels.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                        No hotels found. Add your first hotel or import from Excel.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    filteredHotels.map((hotel) => (
-                      <TableRow key={hotel.id} className="hover:bg-muted/30 transition-colors">
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                              <Building2 className="w-4 h-4 text-primary" />
-                            </div>
-                            <span className="font-medium">{hotel.name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-wtb-gold/10 text-wtb-gold border-wtb-gold/20">
-                            {hotel.category}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{hotel.location}</TableCell>
-                        <TableCell className="text-right font-medium">AED {hotel.singleRoom}</TableCell>
-                        <TableCell className="text-right font-medium">AED {hotel.doubleRoom}</TableCell>
-                        <TableCell className="text-right font-medium">AED {hotel.tripleRoom}</TableCell>
-                        <TableCell className="text-right font-medium">AED {hotel.quadRoom}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{hotel.mealPlan}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={
-                              hotel.status === "active"
-                                ? "bg-wtb-success/10 text-wtb-success border-wtb-success/20"
-                                : "bg-muted text-muted-foreground"
-                            }
-                          >
-                            {hotel.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
-                              onClick={() => handleEdit(hotel)}
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => handleDelete(hotel.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="rates" className="space-y-6">
-          <Card className="shadow-wtb-sm">
-            <CardHeader>
-              <CardTitle className="text-lg font-serif flex items-center gap-2">
-                Rate Management
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Set daily rates for room types and meal plans
+        {/* Hotels List */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {hotels.map((hotel) => (
+            <div key={hotel.id} className="bg-white rounded-lg shadow-lg p-6">
+              <h3 className="text-xl font-semibold text-gray-800">{hotel.name}</h3>
+              <p className="text-gray-600 mb-2">{hotel.location}</p>
+              <p className="text-lg font-bold text-blue-600 mb-4">
+                Base Rate: {hotel.base_rate} AED
               </p>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                <div className="md:col-span-1">
-                  <Label>Hotel</Label>
-                  <Select value={selectedHotelForRate || undefined} onValueChange={setSelectedHotelForRate}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Select Hotel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {hotels.map((hotel) => (
-                        <SelectItem key={hotel.id} value={hotel.id}>
-                          {hotel.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="md:col-span-1">
-                  <Label>Room Type</Label>
-                  <Select value={selectedRoomTypeForRate} onValueChange={setSelectedRoomTypeForRate}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Select Room Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1 BR">1 BR</SelectItem>
-                      <SelectItem value="2 BR">2 BR</SelectItem>
-                      <SelectItem value="3 BR">3 BR</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="md:col-span-1">
-                  <Label>Meal Plan</Label>
-                  <Select value={selectedMealPlan} onValueChange={setSelectedMealPlan}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Select Meal Plan" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Room Only">Room Only</SelectItem>
-                      <SelectItem value="Bed & Breakfast">Bed & Breakfast</SelectItem>
-                      <SelectItem value="Half Board">Half Board</SelectItem>
-                      <SelectItem value="Full Board">Full Board</SelectItem>
-                      <SelectItem value="All Inclusive">All Inclusive</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label>Start Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal bg-background",
-                          !rateStartDate && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {rateStartDate ? format(rateStartDate, "dd/MM/yyyy") : "Select date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={rateStartDate}
-                        onSelect={(d) => d && setRateStartDate(d)}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-
-                <div>
-                  <Label>End Date</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal bg-background",
-                          !rateEndDate && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {rateEndDate ? format(rateEndDate, "dd/MM/yyyy") : "Select date"}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={rateEndDate}
-                        onSelect={(d) => d && setRateEndDate(d)}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-
-                <div className="md:col-span-5 flex justify-end">
-                  <Button onClick={handleSaveRates} className="mt-4">
-                    Save Rates
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {selectedHotelForRate && rateStartDate && rateEndDate && renderRateCalendar()}
-        </TabsContent>
-      </Tabs>
-
-      {/* Add/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-serif">
-              {editingHotel ? "Edit Hotel" : "Add New Hotel"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="col-span-2">
-              <Label htmlFor="name">Hotel Name</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Enter hotel name"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="category">Category</Label>
-              <Select
-                value={formData.category}
-                onValueChange={(value) => setFormData({ ...formData, category: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3 Star">3 Star</SelectItem>
-                  <SelectItem value="4 Star">4 Star</SelectItem>
-                  <SelectItem value="5 Star">5 Star</SelectItem>
-                  <SelectItem value="5 Star Deluxe">5 Star Deluxe</SelectItem>
-                  <SelectItem value="7 Star">7 Star</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="location">Location</Label>
-              <Input
-                id="location"
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                placeholder="Enter location"
-              />
-            </div>
-
-            <div className="col-span-2 grid grid-cols-4 gap-4">
-              <div>
-                <Label>Single Room (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.singleRoom}
-                  onChange={(e) => setFormData({ ...formData, singleRoom: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Double Room (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.doubleRoom}
-                  onChange={(e) => setFormData({ ...formData, doubleRoom: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Triple Room (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.tripleRoom}
-                  onChange={(e) => setFormData({ ...formData, tripleRoom: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Quad Room (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.quadRoom}
-                  onChange={(e) => setFormData({ ...formData, quadRoom: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-
-            <div className="col-span-2 grid grid-cols-4 gap-4">
-              <div>
-                <Label>Six Room (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.sixRoom}
-                  onChange={(e) => setFormData({ ...formData, sixRoom: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Extra Bed (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.extraBed}
-                  onChange={(e) => setFormData({ ...formData, extraBed: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Child w/ Bed (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.childWithBed}
-                  onChange={(e) => setFormData({ ...formData, childWithBed: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Child w/o Bed (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.childWithoutBed}
-                  onChange={(e) => setFormData({ ...formData, childWithoutBed: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-
-            <div className="col-span-2 grid grid-cols-4 gap-4">
-              <div>
-                <Label>CNB 3-5 yrs (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.childWithoutBed3to5}
-                  onChange={(e) => setFormData({ ...formData, childWithoutBed3to5: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>CNB 5-11 yrs (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.childWithoutBed5to11}
-                  onChange={(e) => setFormData({ ...formData, childWithoutBed5to11: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Infant (AED)</Label>
-                <Input
-                  type="number"
-                  value={formData.infant}
-                  onChange={(e) => setFormData({ ...formData, infant: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>Meal Plan</Label>
-                <Select
-                  value={formData.mealPlan}
-                  onValueChange={(value) => setFormData({ ...formData, mealPlan: value })}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleEdit(hotel)}
+                  className="flex-1 flex items-center justify-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg transition"
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select meal plan" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="RO">Room Only</SelectItem>
-                    <SelectItem value="BB">Bed & Breakfast</SelectItem>
-                    <SelectItem value="HB">Half Board</SelectItem>
-                    <SelectItem value="FB">Full Board</SelectItem>
-                    <SelectItem value="AI">All Inclusive</SelectItem>
-                  </SelectContent>
-                </Select>
+                  <Edit2 size={18} />
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(hotel.id)}
+                  className="flex-1 flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition"
+                >
+                  <Trash2 size={18} />
+                  Delete
+                </button>
+                <button
+                  onClick={() => setSelectedHotelForRate(hotel)}
+                  className="flex-1 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition"
+                >
+                  <DollarSign size={18} />
+                  Rates
+                </button>
               </div>
             </div>
+          ))}
+        </div>
 
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value: "active" | "inactive") =>
-                  setFormData({ ...formData, status: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
+        {/* Rate Management */}
+        {selectedHotelForRate && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl p-8 max-w-2xl w-full max-h-96 overflow-y-auto">
+              <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+                Manage Rates for {selectedHotelForRate.name}
+              </h2>
+
+              <div className="space-y-4 mb-6">
+                <div className="flex gap-4">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={handleAddRate}
+                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition whitespace-nowrap"
+                  >
+                    <Calendar size={18} />
+                    Add Rate
+                  </button>
+                </div>
+              </div>
+
+              {dailyRates.length > 0 && (
+                <div className="space-y-2 mb-6">
+                  <h3 className="font-semibold text-gray-700">Daily Rates</h3>
+                  {dailyRates.map((rate, index) => (
+                    <div key={index} className="flex gap-2 items-center">
+                      <span className="flex-1 text-gray-600">{rate.date}</span>
+                      <input
+                        type="number"
+                        value={rate.rate}
+                        onChange={(e) => handleUpdateRate(index, parseFloat(e.target.value))}
+                        className="flex-1 px-3 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        onClick={() => handleRemoveRate(index)}
+                        className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded transition"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-4">
+                <button
+                  onClick={handleSaveRates}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition"
+                >
+                  Save Rates
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedHotelForRate(null);
+                    setDailyRates([]);
+                    setStartDate('');
+                    setEndDate('');
+                  }}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => handleSubmit()}>
-              {editingHotel ? "Update Hotel" : "Add Hotel"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        )}
+      </div>
     </div>
   );
 }
